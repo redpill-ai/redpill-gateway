@@ -184,7 +184,7 @@ console.log('   ' + '\x1b[1;4;32m%s\x1b[0m', `${url}`);
 if (!isHeadless) {
   console.log('\n\x1b[90m📱 UI:\x1b[0m \x1b[36m%s\x1b[0m', `${url}/public/`);
 }
-// console.log('\x1b[90m📚 Docs:\x1b[0m \x1b[36m%s\x1b[0m', 'https://portkey.ai/docs');
+// console.log('\x1b[90m📚 Docs:\x1b[0m \x1b[36m%s\x1b[0m', 'https://redpill.ai/docs');
 
 // Single-line ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');

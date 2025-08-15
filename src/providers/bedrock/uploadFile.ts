@@ -342,7 +342,7 @@ export const BedrockUploadFileRequestHandler: RequestHandler<
         JSON.stringify({
           status: 'failure',
           message:
-            'Please make sure you have x-portkey-aws-s3-bucket and x-portkey-aws-bedrock-model headers provided.',
+            'Please make sure you have x-redpill-aws-s3-bucket and x-redpill-aws-bedrock-model headers provided.',
         }),
         {
           status: 400,

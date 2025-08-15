@@ -4,7 +4,7 @@ import Providers from '../../../../../src/providers';
 import { ANTHROPIC, AZURE_OPEN_AI } from '../../../../../src/globals';
 
 // Mock the Providers object
-jest.mock('../../../providers', () => ({
+jest.mock('../../../../../src/providers', () => ({
   openai: {
     api: {
       headers: jest.fn(),
@@ -51,6 +51,9 @@ describe('ProviderContext', () => {
       endpoint: 'chatComplete',
       transformedRequestBody: { model: 'gpt-4', messages: [] },
       params: { model: 'gpt-4', messages: [] },
+      get requestURL() {
+        return 'https://gateway.example.com/v1/chat/completions';
+      },
     } as unknown as RequestContext;
   });
 
@@ -127,6 +130,7 @@ describe('ProviderContext', () => {
         fn: mockRequestContext.endpoint,
         c: mockRequestContext.honoContext,
         gatewayRequestURL: mockRequestContext.honoContext.req.url,
+        params: mockRequestContext.params,
       });
       expect(result).toBe(mockBaseURL);
     });

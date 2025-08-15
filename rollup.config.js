@@ -11,7 +11,7 @@ export default {
   },
   plugins: [
     typescript({
-      exclude: ['**/*.test.ts', 'start-test.js', 'cookbook', 'docs', 'tests'],
+      exclude: ['**/*.test.ts', 'start-test.js', 'tests'],
     }),
     terser(),
     json(),

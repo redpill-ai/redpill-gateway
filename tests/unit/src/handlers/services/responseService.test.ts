@@ -12,7 +12,7 @@ import {
 } from '../../../../../src/globals';
 
 // Mock dependencies
-jest.mock('../../responseHandlers');
+jest.mock('../../../../../src/handlers/responseHandlers');
 jest.mock('hono/adapter');
 
 describe('ResponseService', () => {
@@ -44,12 +44,7 @@ describe('ResponseService', () => {
 
     mockLogsService = {} as LogsService;
 
-    responseService = new ResponseService(
-      mockRequestContext,
-      mockProviderContext,
-      mockHooksService,
-      mockLogsService
-    );
+    responseService = new ResponseService(mockRequestContext, mockHooksService);
 
     // Reset mocks
     jest.clearAllMocks();
@@ -255,16 +250,14 @@ describe('ResponseService', () => {
     });
 
     it('should not add provider header when provider is POWERED_BY', async () => {
-      const contextWithPortkey = {
+      const contextWithPoweredBy = {
         ...mockRequestContext,
         provider: POWERED_BY,
       } as RequestContext;
 
-      const serviceWithPortkey = new ResponseService(
-        contextWithPortkey,
-        mockProviderContext,
-        mockHooksService,
-        mockLogsService
+      const serviceWithPowererBy = new ResponseService(
+        contextWithPoweredBy,
+        mockHooksService
       );
 
       const options = {
@@ -279,7 +272,7 @@ describe('ResponseService', () => {
         retryAttempt: 0,
       };
 
-      await serviceWithPortkey.create(options);
+      await serviceWithPowererBy.create(options);
 
       expect(mockResponse.headers.get(HEADER_KEYS.PROVIDER)).toBeNull();
     });
@@ -326,9 +319,7 @@ describe('ResponseService', () => {
 
       const streamingService = new ResponseService(
         streamingContext,
-        mockProviderContext,
-        mockHooksService,
-        mockLogsService
+        mockHooksService
       );
 
       const mockResponse = new Response('{}');
@@ -454,19 +445,17 @@ describe('ResponseService', () => {
     });
 
     it('should not add provider header when provider is POWERED_BY', () => {
-      const contextWithPortkey = {
+      const contextWithPoweredBy = {
         ...mockRequestContext,
         provider: POWERED_BY,
       } as RequestContext;
 
-      const serviceWithPortkey = new ResponseService(
-        contextWithPortkey,
-        mockProviderContext,
-        mockHooksService,
-        mockLogsService
+      const serviceWithPowererBy = new ResponseService(
+        contextWithPoweredBy,
+        mockHooksService
       );
 
-      serviceWithPortkey.updateHeaders(mockResponse, 'MISS', 0);
+      serviceWithPowererBy.updateHeaders(mockResponse, 'MISS', 0);
 
       expect(mockResponse.headers.get(HEADER_KEYS.PROVIDER)).toBeNull();
     });
@@ -479,9 +468,7 @@ describe('ResponseService', () => {
 
       const serviceWithEmptyProvider = new ResponseService(
         contextWithEmptyProvider,
-        mockProviderContext,
-        mockHooksService,
-        mockLogsService
+        mockHooksService
       );
 
       serviceWithEmptyProvider.updateHeaders(mockResponse, 'MISS', 0);

@@ -3,7 +3,7 @@ export const createDefaultHeaders = (
   authorization: string
 ) => {
   return {
-    'x-portkey-provider': provider,
+    'x-redpill-provider': provider,
     Authorization: authorization,
     'Content-Type': 'application/json',
   };

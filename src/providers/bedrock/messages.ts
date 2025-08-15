@@ -444,7 +444,7 @@ export const BedrockMessagesResponseTransform = (
     );
     const responseObj: MessagesResponse = {
       // TODO: shorten this
-      id: 'portkey-' + crypto.randomUUID(),
+      id: 'redpill-' + crypto.randomUUID(),
       model: (gatewayRequest.model as string) || '',
       type: 'message',
       role: 'assistant',

@@ -50,13 +50,13 @@ export const GoogleFileUploadRequestHandler: RequestHandler<
     vertexBatchEndpoint = BatchEndpoints.CHAT_COMPLETIONS, //default to inference endpoint
   } = providerOptions;
 
-  let purpose = requestHeaders['x-portkey-file-purpose'] ?? '';
+  let purpose = requestHeaders['x-redpill-file-purpose'] ?? '';
   if (
     (purpose === 'upload' ? false : !vertexModelName) ||
     !vertexStorageBucketName
   ) {
     return GoogleResponseHandler(
-      'Invalid request, please provide `x-portkey-provider-model` and `x-portkey-vertex-storage-bucket-name` in the request headers',
+      'Invalid request, please provide `x-redpill-provider-model` and `x-redpill-vertex-storage-bucket-name` in the request headers',
       400
     );
   }

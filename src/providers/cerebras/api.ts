@@ -5,7 +5,7 @@ export const cerebrasAPIConfig: ProviderAPIConfig = {
   headers: ({ providerOptions }) => {
     return {
       Authorization: `Bearer ${providerOptions.apiKey}`,
-      'User-Agent': 'Portkey Gateway/1.0',
+      'User-Agent': 'RedPill Gateway/1.0',
     };
   },
   getEndpoint: ({ fn }) => {

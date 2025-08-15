@@ -403,7 +403,7 @@ const getMessageContent = (message: Message) => {
   This function transforms the messages for the LLama 3.1 prompt.
   It adds the special tokens to the beginning and end of the prompt.
   refer: https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_1
-  NOTE: Portkey does not restrict messages to alternate user and assistant roles, this is to support more flexible use cases.
+  NOTE: RedPill does not restrict messages to alternate user and assistant roles, this is to support more flexible use cases.
 */
 const transformMessagesForLLama3Prompt = (messages: Message[]) => {
   let prompt: string = '';

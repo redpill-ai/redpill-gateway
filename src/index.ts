@@ -1,5 +1,5 @@
 /**
- * Portkey AI Gateway
+ * AI Gateway
  *
  * @module index
  */
@@ -237,7 +237,7 @@ app.all(
 
 /**
  * POST route for '/v1/prompts/:id/completions'.
- * Handles portkey prompt completions route
+ * Handles prompt completions route
  */
 app.post('/v1/prompts/*', requestValidator, (c) => {
   if (c.req.url.endsWith('/v1/chat/completions')) {

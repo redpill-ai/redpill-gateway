@@ -20,7 +20,7 @@ const CohereAPIConfig: ProviderAPIConfig = {
       case 'embed':
         return '/embed';
       case 'uploadFile':
-        return `/datasets?name=portkey-${crypto.randomUUID()}&type=embed-input&keep_fields=custom_id,id`;
+        return `/datasets?name=redpill-${crypto.randomUUID()}&type=embed-input&keep_fields=custom_id,id`;
       case 'listFiles':
         return '/datasets';
       case 'retrieveFile':

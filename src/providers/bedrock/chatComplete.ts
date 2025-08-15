@@ -240,7 +240,7 @@ const getMessageContent = (message: Message) => {
     });
   }
 
-  // If message is an array of objects, handle text content, tool calls, tool results, this would be much cleaner if portkeys chat create object were a union type
+  // If message is an array of objects, handle text content, tool calls, tool results, this would be much cleaner if redpills chat create object were a union type
   message.tool_calls?.forEach((toolCall: ToolCall) => {
     out.push({
       toolUse: {
@@ -561,7 +561,7 @@ export const BedrockChatCompleteStreamChunkTransform: (
   gatewayRequest
 ) => {
   const parsedChunk: BedrockChatCompleteStreamChunk = JSON.parse(responseChunk);
-  if (parsedChunk.message) {
+  if ((parsedChunk as BedrockErrorResponse).message) {
     return getBedrockErrorChunk(fallbackId, gatewayRequest.model || '');
   }
   if (parsedChunk.stopReason) {
