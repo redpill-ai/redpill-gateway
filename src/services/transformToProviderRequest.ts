@@ -148,6 +148,15 @@ const transformToProviderRequestJSON = (
     throw new GatewayError(`${fn} is not supported by ${provider}`);
   }
 
+  // Auto-add stream_options.include_usage for streaming requests
+  if (params.stream === true && !params.stream_options?.include_usage) {
+    if (!params.stream_options) {
+      params.stream_options = { include_usage: true };
+    } else {
+      params.stream_options.include_usage = true;
+    }
+  }
+
   return transformUsingProviderConfig(providerConfig, params, providerOptions);
 };
 

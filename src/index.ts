@@ -15,6 +15,7 @@ import { getRuntimeKey } from 'hono/adapter';
 import { requestValidator } from './middlewares/requestValidator';
 import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
+import { spendLogger } from './middlewares/spendLog';
 
 // Handlers
 import { proxyHandler } from './handlers/proxyHandler';
@@ -97,6 +98,9 @@ app.use('*', hooks);
 if (conf.cache === true) {
   app.use('*', memoryCache());
 }
+
+// Use spend logger middleware for all routes
+app.use('*', spendLogger());
 
 /**
  * Default route when no other route matches.
