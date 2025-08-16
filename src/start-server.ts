@@ -8,6 +8,8 @@ import { Context } from 'hono';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { realTimeHandlerNode } from './handlers/realtimeHandlerNode';
 import { requestValidator } from './middlewares/requestValidator';
+import { closePostgresPool } from './db/postgres/connection';
+import { closeRedisClient } from './db/redis';
 
 // Extract the port number from the command line arguments
 const defaultPort = 8787;
@@ -188,3 +190,16 @@ if (!isHeadless) {
 
 // Single-line ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
+
+// Graceful shutdown
+async function gracefulShutdown() {
+  try {
+    await Promise.all([closePostgresPool(), closeRedisClient()]);
+  } catch (error) {
+    console.error(error);
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);

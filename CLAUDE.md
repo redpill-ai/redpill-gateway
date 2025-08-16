@@ -65,7 +65,6 @@ This is the **AI Gateway** - a fast, reliable AI gateway that routes requests to
 - `src/providers/` - AI provider integrations
 - `src/handlers/` - API endpoint handlers
 - `src/middlewares/` - Request/response middleware
-- `cookbook/` - Example integrations and use cases
 - `conf.json` - Runtime configuration
 
 ## Testing Strategy

@@ -1,6 +1,5 @@
 import { Context } from 'hono';
-import models from '../data/models.json';
-import providers from '../data/providers.json';
+import { ModelService } from '../services/modelService';
 
 /**
  * Handles the models request. Returns a list of models supported by the Ai gateway.
@@ -9,29 +8,19 @@ import providers from '../data/providers.json';
  * @returns - The response
  */
 export async function modelsHandler(c: Context): Promise<Response> {
-  // If the request does not contain a provider query param, return all models. Add a count as well.
   const provider = c.req.query('provider');
-  if (!provider) {
-    return c.json({
-      ...models,
-      count: models.data.length,
-    });
-  } else {
-    // Filter the models by the provider
-    const filteredModels = models.data.filter(
-      (model: any) => model.provider.id === provider
-    );
-    return c.json({
-      ...models,
-      data: filteredModels,
-      count: filteredModels.length,
-    });
-  }
-}
+  const modelService = new ModelService();
 
-export async function providersHandler(c: Context): Promise<Response> {
-  return c.json({
-    ...providers,
-    count: providers.data.length,
-  });
+  try {
+    const models = provider
+      ? await modelService.getModelsByProvider(provider)
+      : await modelService.getAllModels();
+
+    return c.json({
+      data: models,
+    });
+  } catch (error) {
+    console.error('Error fetching models:', error);
+    return c.json({ error: 'Failed to fetch models' }, 500);
+  }
 }

@@ -1,0 +1,34 @@
+-- Migration: Create models and model_deployments tables
+-- Date: 2025-08-16
+-- Description: Initial schema for AI Gateway model management
+
+-- Models table - stores base model information
+CREATE TABLE models (
+    id VARCHAR(100) PRIMARY KEY,  -- e.g., 'meta-llama/llama-3.3-70b-instruct'
+    name VARCHAR(255) NOT NULL,   -- e.g., 'Llama 3.3 70B Instruct'
+    description TEXT,
+    specs JSONB DEFAULT '{}',     -- model technical specifications
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Model deployments table - stores deployment configurations for routing
+CREATE TABLE model_deployments (
+    id SERIAL PRIMARY KEY,
+    model_id VARCHAR(100) NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    provider_name VARCHAR(50) NOT NULL,     -- e.g., 'openai', 'anthropic', 'inference-net'
+    deployment_name VARCHAR(255) NOT NULL,  -- e.g., 'gpt-4-turbo', 'claude-3-sonnet-prod'
+    config JSONB NOT NULL,                  -- deployment configuration (api, pricing, limits, routing)
+    is_active BOOLEAN DEFAULT true,
+    priority INTEGER DEFAULT 100,           -- lower number = higher priority
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(model_id, provider_name, deployment_name)
+);
+
+-- Indexes for performance
+CREATE INDEX idx_deployments_model_active ON model_deployments(model_id, is_active);
+CREATE INDEX idx_deployments_provider ON model_deployments(provider_name);
+CREATE INDEX idx_deployments_priority ON model_deployments(is_active, priority);
+CREATE INDEX idx_models_specs ON models USING GIN (specs);
+CREATE INDEX idx_deployments_config ON model_deployments USING GIN (config);
