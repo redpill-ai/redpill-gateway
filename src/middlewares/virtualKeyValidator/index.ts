@@ -2,10 +2,20 @@ import { Context } from 'hono';
 import { validateVirtualKey } from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
 
-interface RequestWithModel {
-  model: string;
-  [key: string]: any;
-}
+const createErrorResponse = (status: number, message: string) => {
+  return new Response(
+    JSON.stringify({
+      status: 'failure',
+      message,
+    }),
+    {
+      status,
+      headers: {
+        'content-type': 'application/json',
+      },
+    }
+  );
+};
 
 export const virtualKeyValidator = async (c: Context, next: any) => {
   const requestHeaders = Object.fromEntries(c.req.raw.headers);
@@ -17,48 +27,19 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
 
   // Validate API key
   const validationResult = await validateVirtualKey(apiKey);
-
-  if (!validationResult.isValid) {
-    return new Response(
-      JSON.stringify({
-        status: 'failure',
-        message: validationResult.error || 'Authentication failed',
-      }),
-      {
-        status: 401,
-        headers: {
-          'content-type': 'application/json',
-        },
-      }
-    );
+  if ('error' in validationResult) {
+    return createErrorResponse(401, validationResult.error);
   }
 
   try {
-    let modelName = ''
-    let requestBody: RequestWithModel | null = null;
-
-    // Get model name from body for POST requests or query params for GET requests
-    if (c.req.method === 'GET') {
-      modelName = c.req.query('model') || '';
-    } else {
-      // Parse request body to get model name
-      requestBody = await c.req.json();
-      modelName = requestBody?.model ?? '';
-    }
+    // Get model name from body for POST requests or query params for other requests
+    const modelName =
+      c.req.method === 'POST'
+        ? (await c.req.json())?.model ?? ''
+        : c.req.query('model') || '';
 
     if (!modelName) {
-      return new Response(
-        JSON.stringify({
-          status: 'failure',
-          message: 'Model parameter is required',
-        }),
-        {
-          status: 400,
-          headers: {
-            'content-type': 'application/json',
-          },
-        }
-      );
+      return createErrorResponse(400, 'Model parameter is required');
     }
 
     // Get model deployment for the requested model
@@ -66,18 +47,7 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
     const deployment = await modelService.getModelDeploymentForModel(modelName);
 
     if (!deployment) {
-      return new Response(
-        JSON.stringify({
-          status: 'failure',
-          message: `Model '${modelName}' is not available`,
-        }),
-        {
-          status: 404,
-          headers: {
-            'content-type': 'application/json',
-          },
-        }
-      );
+      return createErrorResponse(404, `Model '${modelName}' is not available`);
     }
 
     // Store virtual key context for billing and provider config override
@@ -88,24 +58,12 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
         apiKey: deployment.config.api_key,
         customHost: deployment.config.base_url,
       },
-      // Store the deployment_name to use instead of the original model name
       deploymentName: deployment.deployment_name,
       originalModel: modelName,
     });
   } catch (error) {
     console.error('Virtual key middleware error:', error);
-    return new Response(
-      JSON.stringify({
-        status: 'failure',
-        message: 'Internal server error',
-      }),
-      {
-        status: 500,
-        headers: {
-          'content-type': 'application/json',
-        },
-      }
-    );
+    return createErrorResponse(500, 'Internal server error');
   }
 
   return next();

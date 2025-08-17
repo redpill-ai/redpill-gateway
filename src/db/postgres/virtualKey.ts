@@ -30,19 +30,13 @@ export interface VirtualKeyWithUser extends VirtualKey {
   user: User;
 }
 
-export interface VirtualKeyValidationResult {
-  isValid: boolean;
-  virtualKeyWithUser?: VirtualKeyWithUser;
-  error?: string;
-}
-
 export function hashApiKey(apiKey: string): string {
   return createHash('sha256').update(apiKey).digest('hex');
 }
 
 export async function validateVirtualKey(
   apiKey: string
-): Promise<VirtualKeyValidationResult> {
+): Promise<{ virtualKeyWithUser: VirtualKeyWithUser } | { error: string }> {
   const apiKeyHash = hashApiKey(apiKey);
   try {
     const result = await queryPostgres<unknown>(
@@ -64,18 +58,11 @@ export async function validateVirtualKey(
     );
 
     if (result.length === 0) {
-      return {
-        isValid: false,
-        error: 'Invalid API key',
-      };
+      return { error: 'Invalid API key' };
     }
 
     const row = result[0];
-
-    // Parse and validate virtual key data
     const virtualKey = VirtualKeySchema.parse(row);
-
-    // Parse and validate user data
     const user = UserSchema.parse((row as { user: unknown }).user);
 
     const virtualKeyWithUser: VirtualKeyWithUser = {
@@ -90,10 +77,7 @@ export async function validateVirtualKey(
         virtualKeyWithUser.user.budget_limit
       )
     ) {
-      return {
-        isValid: false,
-        error: 'Account quota exceeded',
-      };
+      return { error: 'Account quota exceeded' };
     }
 
     // Check virtual key budget
@@ -101,21 +85,12 @@ export async function validateVirtualKey(
       virtualKeyWithUser.budget_limit &&
       virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
     ) {
-      return {
-        isValid: false,
-        error: 'API key quota exceeded',
-      };
+      return { error: 'API key quota exceeded' };
     }
 
-    return {
-      isValid: true,
-      virtualKeyWithUser,
-    };
+    return { virtualKeyWithUser };
   } catch (error) {
     console.error('Virtual key validation error:', error);
-    return {
-      isValid: false,
-      error: 'Virtual key validation failed',
-    };
+    return { error: 'Virtual key validation failed' };
   }
 }
