@@ -8,6 +8,7 @@ CREATE TABLE models (
     name VARCHAR(255) NOT NULL,   -- e.g., 'Llama 3.3 70B Instruct'
     description TEXT,
     specs JSONB DEFAULT '{}',     -- model technical specifications
+    active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -19,16 +20,11 @@ CREATE TABLE model_deployments (
     provider_name VARCHAR(50) NOT NULL,     -- e.g., 'openai', 'anthropic', 'inference-net'
     deployment_name VARCHAR(255) NOT NULL,  -- e.g., 'gpt-4-turbo', 'claude-3-sonnet-prod'
     config JSONB NOT NULL,                  -- deployment configuration (api, pricing, limits, routing)
-    is_active BOOLEAN DEFAULT true,
-    priority INTEGER DEFAULT 100,           -- lower number = higher priority
+    active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(model_id, provider_name, deployment_name)
 );
 
 -- Indexes for performance
-CREATE INDEX idx_deployments_model_active ON model_deployments(model_id, is_active);
 CREATE INDEX idx_deployments_provider ON model_deployments(provider_name);
-CREATE INDEX idx_deployments_priority ON model_deployments(is_active, priority);
-CREATE INDEX idx_models_specs ON models USING GIN (specs);
-CREATE INDEX idx_deployments_config ON model_deployments USING GIN (config);

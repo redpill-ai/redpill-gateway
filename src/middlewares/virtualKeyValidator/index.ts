@@ -80,8 +80,8 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
       virtualKeyWithUser: validationResult.virtualKeyWithUser,
       providerConfig: {
         provider: deployment.provider_name,
-        apiKey: deployment.config.api_key || deployment.config.apiKey,
-        customHost: deployment.config.baseUrl,
+        apiKey: deployment.config.api_key,
+        customHost: deployment.config.base_url,
       },
     });
   } catch (error) {

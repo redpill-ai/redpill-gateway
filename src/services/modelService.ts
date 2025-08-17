@@ -72,8 +72,7 @@ export class ModelService {
     for (const model of models) {
       const deployments = await getModelDeployments(model.id);
       const specs = model.specs || {};
-      const bestDeployment =
-        deployments.find((d) => d.is_active) || deployments[0];
+      const bestDeployment = deployments[0];
       const config = bestDeployment?.config || {};
 
       const modelData = ModelSchema.parse({
@@ -85,8 +84,8 @@ export class ModelService {
         context_length: specs.context_length,
         max_output_length: specs.max_output_tokens,
         pricing: {
-          prompt: config.pricing?.input_cost_per_token?.toString(),
-          completion: config.pricing?.output_cost_per_token?.toString(),
+          prompt: config.input_cost_per_token,
+          completion: config.output_cost_per_token,
         },
         supported_sampling_parameters: specs.supported_sampling_parameters,
         supported_features: specs.supported_features,
