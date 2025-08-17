@@ -1,11 +1,4 @@
-import { PHALA } from '../../globals';
-import { CompletionResponse, ErrorResponse, ProviderConfig } from '../types';
-import { generateInvalidProviderResponseError } from '../utils';
-import {
-  PhalaErrorResponse,
-  PhalaErrorResponseTransform,
-  PhalaOpenAICompatibleErrorResponse,
-} from './chatComplete';
+import { ProviderConfig } from '../types';
 
 export const PhalaCompleteConfig: ProviderConfig = {
   model: {
@@ -14,118 +7,70 @@ export const PhalaCompleteConfig: ProviderConfig = {
   },
   prompt: {
     param: 'prompt',
-    required: true,
     default: '',
   },
   max_tokens: {
     param: 'max_tokens',
-    required: true,
-    default: 128,
-    min: 1,
-  },
-  stop: {
-    param: 'stop',
+    default: 100,
+    min: 0,
   },
   temperature: {
     param: 'temperature',
+    default: 1,
+    min: 0,
+    max: 2,
   },
   top_p: {
     param: 'top_p',
+    default: 1,
+    min: 0,
+    max: 1,
   },
-  top_k: {
-    param: 'top_k',
-  },
-  frequency_penalty: {
-    param: 'repetition_penalty',
+  n: {
+    param: 'n',
+    default: 1,
   },
   stream: {
     param: 'stream',
     default: false,
   },
+  stream_options: {
+    param: 'stream_options',
+  },
   logprobs: {
     param: 'logprobs',
+    max: 5,
   },
-};
-
-interface PhalaCompleteResponse extends CompletionResponse {
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
-
-interface PhalaCompletionStreamChunk {
-  id: string;
-  model: string;
-  request_id: string;
-  choices: {
-    text: string;
-  }[];
-}
-
-export const PhalaCompleteResponseTransform: (
-  response:
-    | PhalaCompleteResponse
-    | PhalaErrorResponse
-    | PhalaOpenAICompatibleErrorResponse,
-  responseStatus: number
-) => CompletionResponse | ErrorResponse = (response, responseStatus) => {
-  if (responseStatus !== 200) {
-    const errorResponse = PhalaErrorResponseTransform(
-      response as PhalaErrorResponse
-    );
-    if (errorResponse) return errorResponse;
-  }
-
-  if ('choices' in response) {
-    return {
-      id: response.id,
-      object: response.object,
-      created: response.created,
-      model: response.model,
-      provider: PHALA,
-      choices: response.choices.map((choice) => ({
-        text: choice.text,
-        index: choice.index || 0,
-        logprobs: null,
-        finish_reason: choice.finish_reason,
-      })),
-      usage: {
-        prompt_tokens: response.usage?.prompt_tokens,
-        completion_tokens: response.usage?.completion_tokens,
-        total_tokens: response.usage?.total_tokens,
-      },
-    };
-  }
-
-  return generateInvalidProviderResponseError(response, PHALA);
-};
-
-export const PhalaCompleteStreamChunkTransform: (response: string) => string = (
-  responseChunk
-) => {
-  let chunk = responseChunk.trim();
-  chunk = chunk.replace(/^data: /, '');
-  chunk = chunk.trim();
-  if (chunk === '[DONE]') {
-    return `data: ${chunk}\n\n`;
-  }
-  const parsedChunk: PhalaCompletionStreamChunk = JSON.parse(chunk);
-  return (
-    `data: ${JSON.stringify({
-      id: parsedChunk.id,
-      object: 'text_completion',
-      created: Math.floor(Date.now() / 1000),
-      model: parsedChunk.model,
-      provider: PHALA,
-      choices: [
-        {
-          text: parsedChunk.choices[0]?.text,
-          index: 0,
-          finish_reason: '',
-        },
-      ],
-    })}` + '\n\n'
-  );
+  echo: {
+    param: 'echo',
+    default: false,
+  },
+  stop: {
+    param: 'stop',
+  },
+  presence_penalty: {
+    param: 'presence_penalty',
+    min: -2,
+    max: 2,
+  },
+  frequency_penalty: {
+    param: 'frequency_penalty',
+    min: -2,
+    max: 2,
+  },
+  best_of: {
+    param: 'best_of',
+  },
+  logit_bias: {
+    param: 'logit_bias',
+  },
+  user: {
+    param: 'user',
+  },
+  seed: {
+    param: 'seed',
+  },
+  suffix: {
+    param: 'suffix',
+  },
 };
