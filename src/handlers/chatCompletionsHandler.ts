@@ -2,6 +2,7 @@ import { RouterError } from '../errors/RouterError';
 import {
   constructConfigFromRequestHeaders,
   tryTargetsRecursively,
+  overrideProviderHeadersFromContext,
 } from './handlerUtils';
 import { Context } from 'hono';
 
@@ -17,6 +18,7 @@ export async function chatCompletionsHandler(c: Context): Promise<Response> {
   try {
     let request = await c.req.json();
     let requestHeaders = Object.fromEntries(c.req.raw.headers);
+    requestHeaders = overrideProviderHeadersFromContext(requestHeaders, c);
     const camelCaseConfig = constructConfigFromRequestHeaders(requestHeaders);
     const tryTargetsResponse = await tryTargetsRecursively(
       c,

@@ -16,6 +16,7 @@ import { requestValidator } from './middlewares/requestValidator';
 import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
 import { spendLogger } from './middlewares/spendLog';
+import { virtualKeyValidator } from './middlewares/virtualKeyValidator';
 
 // Handlers
 import { proxyHandler } from './handlers/proxyHandler';
@@ -125,19 +126,19 @@ app.onError((err, c) => {
 /**
  * POST route for '/v1/messages' in anthropic format
  */
-app.post('/v1/messages', requestValidator, messagesHandler);
+app.post('/v1/messages', virtualKeyValidator, messagesHandler);
 
 /**
  * POST route for '/v1/chat/completions'.
  * Handles requests by passing them to the chatCompletionsHandler.
  */
-app.post('/v1/chat/completions', requestValidator, chatCompletionsHandler);
+app.post('/v1/chat/completions', virtualKeyValidator, chatCompletionsHandler);
 
 /**
  * POST route for '/v1/completions'.
  * Handles requests by passing them to the completionsHandler.
  */
-app.post('/v1/completions', requestValidator, completionsHandler);
+app.post('/v1/completions', virtualKeyValidator, completionsHandler);
 
 /**
  * POST route for '/v1/embeddings'.

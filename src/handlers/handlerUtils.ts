@@ -823,6 +823,26 @@ export async function tryTargetsRecursively(
   return response!;
 }
 
+export function overrideProviderHeadersFromContext(
+  requestHeaders: Record<string, any>,
+  context: Context
+): Record<string, any> {
+  const virtualKeyContext = context.get('virtualKeyContext');
+  if (!virtualKeyContext) {
+    return requestHeaders;
+  }
+
+  return {
+    ...requestHeaders,
+    [`x-${POWERED_BY}-provider`]: virtualKeyContext.providerConfig.provider,
+    authorization: `Bearer ${virtualKeyContext.providerConfig.apiKey}`,
+    ...(virtualKeyContext.providerConfig.customHost && {
+      [`x-${POWERED_BY}-custom-host`]:
+        virtualKeyContext.providerConfig.customHost,
+    }),
+  };
+}
+
 export function constructConfigFromRequestHeaders(
   requestHeaders: Record<string, any>
 ): Options | Targets {
