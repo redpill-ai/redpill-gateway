@@ -3,6 +3,7 @@ import { CONTENT_TYPES } from '../globals';
 import {
   constructConfigFromRequestHeaders,
   tryTargetsRecursively,
+  overrideProviderHeadersFromContext,
 } from './handlerUtils';
 import { RouterError } from '../errors/RouterError';
 
@@ -26,6 +27,7 @@ async function getRequestData(request: Request, contentType: string) {
 export async function proxyHandler(c: Context): Promise<Response> {
   try {
     let requestHeaders = Object.fromEntries(c.req.raw.headers);
+    requestHeaders = overrideProviderHeadersFromContext(requestHeaders, c);
     const requestContentType = requestHeaders['content-type']?.split(';')[0];
 
     const request = await getRequestData(c.req.raw, requestContentType);

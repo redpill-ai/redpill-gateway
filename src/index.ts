@@ -264,6 +264,10 @@ if (runtime === 'workerd') {
   app.get('/v1/realtime', realTimeHandler);
 }
 
+// attestation
+app.get('/v1/attestation/report', virtualKeyValidator, proxyHandler);
+app.get('/v1/signature/*', virtualKeyValidator, proxyHandler);
+
 /**
  * @deprecated
  * Support the /v1 proxy endpoint

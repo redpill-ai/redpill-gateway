@@ -50,6 +50,7 @@ export const GOOGLE: string = 'google';
 export const GOOGLE_VERTEX_AI: string = 'vertex-ai';
 export const HUGGING_FACE: string = 'huggingface';
 export const PERPLEXITY_AI: string = 'perplexity-ai';
+export const PHALA: string = 'phala';
 export const REKA_AI: string = 'reka-ai';
 export const MISTRAL_AI: string = 'mistral-ai';
 export const DEEPINFRA: string = 'deepinfra';

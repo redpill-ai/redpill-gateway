@@ -36,10 +36,17 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
   }
 
   try {
-    // Parse request body to get model name
-    const requestBody: RequestWithModel = await c.req.json();
+    let modelName: string;
 
-    const modelName = requestBody.model;
+    // Get model name from body for POST requests or query params for GET requests
+    if (c.req.method === 'GET') {
+      modelName = c.req.query('model') || '';
+    } else {
+      // Parse request body to get model name
+      const requestBody: RequestWithModel = await c.req.json();
+      modelName = requestBody.model;
+    }
+
     if (!modelName) {
       return new Response(
         JSON.stringify({

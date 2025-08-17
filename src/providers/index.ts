@@ -14,6 +14,7 @@ import NomicConfig from './nomic';
 import OpenAIConfig from './openai';
 import PalmAIConfig from './palm';
 import PerplexityAIConfig from './perplexity-ai';
+import PhalaConfig from './phala';
 import TogetherAIConfig from './together-ai';
 import StabilityAIConfig from './stability-ai';
 import OllamaAPIConfig from './ollama';
@@ -76,6 +77,7 @@ const Providers: { [key: string]: ProviderConfigs } = {
   google: GoogleConfig,
   'vertex-ai': VertexConfig,
   'perplexity-ai': PerplexityAIConfig,
+  phala: PhalaConfig,
   'mistral-ai': MistralAIConfig,
   deepinfra: DeepInfraConfig,
   ncompass: NCompassConfig,
