@@ -3,6 +3,7 @@ import {
   constructConfigFromRequestHeaders,
   tryTargetsRecursively,
   overrideProviderHeadersFromContext,
+  overrideModelFromContext,
 } from './handlerUtils';
 import { Context } from 'hono';
 
@@ -19,6 +20,7 @@ export async function completionsHandler(c: Context): Promise<Response> {
     let request = await c.req.json();
     let requestHeaders = Object.fromEntries(c.req.raw.headers);
     requestHeaders = overrideProviderHeadersFromContext(requestHeaders, c);
+    request = overrideModelFromContext(request, c);
     const camelCaseConfig = constructConfigFromRequestHeaders(requestHeaders);
 
     const tryTargetsResponse = await tryTargetsRecursively(

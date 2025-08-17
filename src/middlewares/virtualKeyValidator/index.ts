@@ -1,6 +1,6 @@
 import { Context } from 'hono';
 import { validateVirtualKey } from '../../db/postgres/virtualKey';
-import { getModelDeploymentForModel } from '../../db/postgres/model';
+import { ModelService } from '../../services/modelService';
 
 interface RequestWithModel {
   model: string;
@@ -34,15 +34,16 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
   }
 
   try {
-    let modelName: string;
+    let modelName = ''
+    let requestBody: RequestWithModel | null = null;
 
     // Get model name from body for POST requests or query params for GET requests
     if (c.req.method === 'GET') {
       modelName = c.req.query('model') || '';
     } else {
       // Parse request body to get model name
-      const requestBody: RequestWithModel = await c.req.json();
-      modelName = requestBody.model;
+      requestBody = await c.req.json();
+      modelName = requestBody?.model ?? '';
     }
 
     if (!modelName) {
@@ -61,7 +62,8 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
     }
 
     // Get model deployment for the requested model
-    const deployment = await getModelDeploymentForModel(modelName);
+    const modelService = new ModelService();
+    const deployment = await modelService.getModelDeploymentForModel(modelName);
 
     if (!deployment) {
       return new Response(
@@ -86,6 +88,9 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
         apiKey: deployment.config.api_key,
         customHost: deployment.config.base_url,
       },
+      // Store the deployment_name to use instead of the original model name
+      deploymentName: deployment.deployment_name,
+      originalModel: modelName,
     });
   } catch (error) {
     console.error('Virtual key middleware error:', error);

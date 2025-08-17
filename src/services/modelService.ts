@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import {
   getModels,
-  getModelDeploymentForModel,
+  getModelDeployment,
   type Model,
+  type ModelDeployment,
 } from '../db/postgres/model';
 import {
   getCache,
@@ -70,7 +71,7 @@ export class ModelService {
     const results = [];
 
     for (const model of models) {
-      const deployment = await getModelDeploymentForModel(model.id);
+      const deployment = await getModelDeployment(model.id);
       const specs = model.specs || {};
       const config = deployment?.config || {};
 
@@ -97,9 +98,34 @@ export class ModelService {
     return results;
   }
 
+  async getModelDeploymentForModel(
+    modelNameOrAlias: string
+  ): Promise<ModelDeployment | null> {
+    // Check cache first
+    const cacheKey = buildCacheKey('model-deployment', modelNameOrAlias);
+    const cached = await getCache(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Cache miss - query database
+    const deployment = await getModelDeployment(modelNameOrAlias);
+
+    if (!deployment) {
+      // Cache null result to prevent cache penetration
+      await setCache(cacheKey, null, 300); // 5 minutes TTL
+      return null;
+    }
+
+    // Cache the result
+    await setCache(cacheKey, deployment, 3600); // 1 hour TTL
+    return deployment;
+  }
+
   async clearCache(): Promise<void> {
     try {
       await clearCacheByPattern(buildCacheKey('models', '*'));
+      await clearCacheByPattern(buildCacheKey('model-deployment', '*'));
     } catch (error) {
       console.error('Failed to clear model cache:', error);
     }

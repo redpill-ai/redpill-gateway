@@ -843,6 +843,21 @@ export function overrideProviderHeadersFromContext(
   };
 }
 
+export function overrideModelFromContext(
+  requestBody: Record<string, any>,
+  context: Context
+): Record<string, any> {
+  const virtualKeyContext = context.get('virtualKeyContext');
+  if (!virtualKeyContext?.deploymentName || !requestBody.model) {
+    return requestBody;
+  }
+
+  return {
+    ...requestBody,
+    model: virtualKeyContext.deploymentName,
+  };
+}
+
 export function constructConfigFromRequestHeaders(
   requestHeaders: Record<string, any>
 ): Options | Targets {
