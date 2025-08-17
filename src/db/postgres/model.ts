@@ -42,22 +42,20 @@ export async function getModels(provider?: string): Promise<Model[]> {
   return results.map((row) => ModelSchema.parse(row));
 }
 
-export async function getModelDeployments(
-  modelId: string,
-  provider?: string
-): Promise<ModelDeployment[]> {
-  let query = `
-    SELECT md.* FROM model_deployments md
-    JOIN models m ON md.model_id = m.id
-    WHERE md.active = true AND m.active = true AND md.model_id = $1
-  `;
-  let params: string[] = [modelId];
+export async function getModelDeploymentForModel(
+  modelName: string
+): Promise<ModelDeployment | null> {
+  const deployments = await queryPostgres<unknown>(
+    `SELECT md.* FROM model_deployments md
+     JOIN models m ON md.model_id = m.id
+     WHERE m.id = $1 AND md.active = true
+     LIMIT 1`,
+    [modelName]
+  );
 
-  if (provider) {
-    query += ` AND md.provider_name = $2`;
-    params.push(provider);
+  if (deployments.length === 0) {
+    return null;
   }
 
-  const results = await queryPostgres<unknown>(query, params);
-  return results.map((row) => ModelDeploymentSchema.parse(row));
+  return ModelDeploymentSchema.parse(deployments[0]);
 }

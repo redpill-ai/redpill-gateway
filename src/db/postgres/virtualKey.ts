@@ -36,11 +36,6 @@ export interface VirtualKeyValidationResult {
   error?: string;
 }
 
-export interface ModelDeploymentLookupResult {
-  deployment?: ModelDeployment;
-  error?: string;
-}
-
 export function hashApiKey(apiKey: string): string {
   return createHash('sha256').update(apiKey).digest('hex');
 }
@@ -121,38 +116,6 @@ export async function validateVirtualKey(
     return {
       isValid: false,
       error: 'Virtual key validation failed',
-    };
-  }
-}
-
-export async function getModelDeploymentForModel(
-  modelName: string
-): Promise<ModelDeploymentLookupResult> {
-  try {
-    // Query for active model deployments for the specified model
-    const deployments = await queryPostgres<unknown>(
-      `SELECT md.* FROM model_deployments md
-       JOIN models m ON md.model_id = m.id
-       WHERE m.id = $1 AND md.active = true
-       LIMIT 1`,
-      [modelName]
-    );
-
-    if (deployments.length === 0) {
-      return {
-        error: `No active deployment found for model: ${modelName}`,
-      };
-    }
-
-    const deployment = ModelDeploymentSchema.parse(deployments[0]);
-
-    return {
-      deployment,
-    };
-  } catch (error) {
-    console.error('Model deployment lookup error:', error);
-    return {
-      error: 'Failed to lookup model deployment',
     };
   }
 }

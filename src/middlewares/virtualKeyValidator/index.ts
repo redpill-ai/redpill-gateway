@@ -1,8 +1,6 @@
 import { Context } from 'hono';
-import {
-  validateVirtualKey,
-  getModelDeploymentForModel,
-} from '../../db/postgres/virtualKey';
+import { validateVirtualKey } from '../../db/postgres/virtualKey';
+import { getModelDeploymentForModel } from '../../db/postgres/model';
 
 interface RequestWithModel {
   model: string;
@@ -63,9 +61,9 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
     }
 
     // Get model deployment for the requested model
-    const deploymentResult = await getModelDeploymentForModel(modelName);
+    const deployment = await getModelDeploymentForModel(modelName);
 
-    if (deploymentResult.error || !deploymentResult.deployment) {
+    if (!deployment) {
       return new Response(
         JSON.stringify({
           status: 'failure',
@@ -79,8 +77,6 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
         }
       );
     }
-
-    const deployment = deploymentResult.deployment;
 
     // Store virtual key context for billing and provider config override
     c.set('virtualKeyContext', {

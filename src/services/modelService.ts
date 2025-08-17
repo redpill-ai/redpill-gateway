@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
   getModels,
-  getModelDeployments,
+  getModelDeploymentForModel,
   type Model,
 } from '../db/postgres/model';
 import {
@@ -70,10 +70,9 @@ export class ModelService {
     const results = [];
 
     for (const model of models) {
-      const deployments = await getModelDeployments(model.id);
+      const deployment = await getModelDeploymentForModel(model.id);
       const specs = model.specs || {};
-      const bestDeployment = deployments[0];
-      const config = bestDeployment?.config || {};
+      const config = deployment?.config || {};
 
       const modelData = ModelSchema.parse({
         id: model.id,
