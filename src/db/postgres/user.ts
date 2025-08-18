@@ -1,9 +1,11 @@
 import Decimal from 'decimal.js';
 import { z } from 'zod';
+import { queryPostgres } from './connection';
 
 export const UserSchema = z.object({
   id: z.number(),
   email: z.string(),
+  credits: z.string().transform((val) => new Decimal(val)),
   budget_limit: z
     .string()
     .nullable()
@@ -16,3 +18,31 @@ export const UserSchema = z.object({
 });
 
 export type User = z.infer<typeof UserSchema>;
+
+export async function updateUserBudgetsBatch(
+  userSpends: Map<number, Decimal>
+): Promise<void> {
+  if (userSpends.size === 0) return;
+
+  const values = Array.from(userSpends.entries())
+    .map(
+      (_, index) => `($${index * 2 + 1}::integer, $${index * 2 + 2}::decimal)`
+    )
+    .join(', ');
+
+  const params = Array.from(userSpends.entries()).flatMap(([userId, cost]) => [
+    userId,
+    cost.toString(),
+  ]);
+
+  await queryPostgres(
+    `
+    UPDATE users SET
+      budget_used = budget_used + data.amount,
+      credits = credits - data.amount * 2000000
+    FROM (VALUES ${values}) AS data(user_id, amount)
+    WHERE users.id = data.user_id
+  `,
+    params
+  );
+}

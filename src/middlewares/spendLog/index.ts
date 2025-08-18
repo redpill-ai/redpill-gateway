@@ -1,9 +1,6 @@
 import { Context } from 'hono';
-
-interface StreamUsageCollector {
-  usage: any | null;
-  hasUsage: boolean;
-}
+import { SpendQueue } from '../../services/spendQueue';
+import { VirtualKeyContext } from '../virtualKeyValidator/index';
 
 function extractUsageFromResponse(responseData: any): any | null {
   if (!responseData || typeof responseData !== 'object') {
@@ -34,8 +31,50 @@ function extractUsageFromStreamChunk(chunkText: string): any | null {
   }
 }
 
-function logSpendData(spendData: any): void {
-  console.log(`[SPEND_LOG] ${JSON.stringify(spendData, null, 2)}`);
+interface SpendLogData {
+  time: string;
+  method: string;
+  endpoint: string;
+  status: number;
+  duration: number;
+  usage: any | null;
+  virtualKeyContext: VirtualKeyContext;
+}
+
+function processSpendData(spendData: SpendLogData): void {
+  const { virtualKeyContext, usage } = spendData;
+
+  if (!virtualKeyContext?.virtualKeyWithUser) {
+    console.warn(
+      '[SPEND_LOG] No virtual key context found, skipping spend processing'
+    );
+    return;
+  }
+
+  const { virtualKeyWithUser, providerConfig, pricing } = virtualKeyContext;
+
+  const queueData = {
+    time: spendData.time,
+    method: spendData.method,
+    endpoint: spendData.endpoint,
+    status: spendData.status,
+    duration: spendData.duration,
+    usage: usage
+      ? {
+          input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
+          output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+        }
+      : null,
+    userId: virtualKeyWithUser.user.id,
+    virtualKeyId: virtualKeyWithUser.id,
+    provider: providerConfig?.provider || 'unknown',
+    pricing: {
+      inputCostPerToken: pricing?.inputCostPerToken || 0,
+      outputCostPerToken: pricing?.outputCostPerToken || 0,
+    },
+  };
+
+  SpendQueue.getInstance().enqueueSpendData(queueData);
 }
 
 export const spendLogger = () => {
@@ -50,17 +89,14 @@ export const spendLogger = () => {
     const endpoint = new URL(c.req.url).pathname;
     const status = c.res.status;
     const duration = Date.now() - start;
-    const requestOptionsArray = c.get('requestOptions');
+    const virtualKeyContext = c.get('virtualKeyContext');
 
     try {
       const contentType = c.res.headers.get('content-type') || '';
 
       // Handle streaming responses
       if (contentType.includes('text/event-stream')) {
-        const usageCollector: StreamUsageCollector = {
-          usage: null,
-          hasUsage: false,
-        };
+        let streamUsage: any | null = null;
 
         // Create a transform stream to intercept and parse chunks
         const transformStream = new TransformStream({
@@ -75,27 +111,24 @@ export const spendLogger = () => {
             for (const line of lines) {
               const usage = extractUsageFromStreamChunk(line);
               if (usage) {
-                usageCollector.usage = usage;
-                usageCollector.hasUsage = true;
+                streamUsage = usage;
               }
             }
           },
 
           flush() {
             // Log spend data when stream ends
-            if (usageCollector.hasUsage) {
-              const spendData = {
-                time: new Date().toISOString(),
-                method,
-                endpoint,
-                status,
-                duration,
-                usage: usageCollector.usage,
-                requestOptions: requestOptionsArray,
-              };
+            const spendData = {
+              time: new Date().toISOString(),
+              method,
+              endpoint,
+              status,
+              duration,
+              usage: streamUsage,
+              virtualKeyContext,
+            };
 
-              logSpendData(spendData);
-            }
+            processSpendData(spendData);
           },
         });
 
@@ -116,19 +149,17 @@ export const spendLogger = () => {
         const responseData = await responseClone.json();
 
         const usage = extractUsageFromResponse(responseData);
-        if (usage) {
-          const spendData = {
-            time: new Date().toISOString(),
-            method,
-            endpoint,
-            status,
-            duration,
-            usage,
-            requestOptions: requestOptionsArray,
-          };
+        const spendData = {
+          time: new Date().toISOString(),
+          method,
+          endpoint,
+          status,
+          duration,
+          usage,
+          virtualKeyContext,
+        };
 
-          logSpendData(spendData);
-        }
+        processSpendData(spendData);
       }
     } catch (error) {
       console.error('Error extracting spend log information:', error);

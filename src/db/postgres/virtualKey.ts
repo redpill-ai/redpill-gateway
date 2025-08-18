@@ -1,5 +1,4 @@
 import { queryPostgres } from './connection';
-import { ModelDeployment, ModelDeploymentSchema } from './model';
 import { User, UserSchema } from './user';
 import Decimal from 'decimal.js';
 import { z } from 'zod';
@@ -93,4 +92,31 @@ export async function validateVirtualKey(
     console.error('Virtual key validation error:', error);
     return { error: 'Virtual key validation failed' };
   }
+}
+
+export async function updateVirtualKeyBudgetsBatch(
+  keySpends: Map<number, Decimal>
+): Promise<void> {
+  if (keySpends.size === 0) return;
+
+  const values = Array.from(keySpends.entries())
+    .map(
+      (_, index) => `($${index * 2 + 1}::integer, $${index * 2 + 2}::decimal)`
+    )
+    .join(', ');
+
+  const params = Array.from(keySpends.entries()).flatMap(([keyId, cost]) => [
+    keyId,
+    cost.toString(),
+  ]);
+
+  await queryPostgres(
+    `
+    UPDATE virtual_keys SET
+      budget_used = budget_used + data.amount
+    FROM (VALUES ${values}) AS data(key_id, amount)
+    WHERE virtual_keys.id = data.key_id
+  `,
+    params
+  );
 }

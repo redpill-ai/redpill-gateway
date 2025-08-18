@@ -1,6 +1,21 @@
 import { Context } from 'hono';
-import { validateVirtualKey } from '../../db/postgres/virtualKey';
+import { validateVirtualKey, VirtualKeyWithUser } from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
+
+export interface VirtualKeyContext {
+  virtualKeyWithUser: VirtualKeyWithUser;
+  providerConfig: {
+    provider: string;
+    apiKey: string;
+    customHost?: string;
+  };
+  deploymentName: string;
+  originalModel: string;
+  pricing: {
+    inputCostPerToken: number;
+    outputCostPerToken: number;
+  };
+}
 
 const createErrorResponse = (status: number, message: string) => {
   return new Response(
@@ -60,6 +75,10 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
       },
       deploymentName: deployment.deployment_name,
       originalModel: modelName,
+      pricing: {
+        inputCostPerToken: deployment.config.input_cost_per_token || 0,
+        outputCostPerToken: deployment.config.output_cost_per_token || 0,
+      },
     });
   } catch (error) {
     console.error('Virtual key middleware error:', error);

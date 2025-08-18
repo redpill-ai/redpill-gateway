@@ -10,6 +10,7 @@ import { realTimeHandlerNode } from './handlers/realtimeHandlerNode';
 import { requestValidator } from './middlewares/requestValidator';
 import { closePostgresPool } from './db/postgres/connection';
 import { closeRedisClient } from './db/redis';
+import { SpendQueue } from './services/spendQueue';
 
 // Extract the port number from the command line arguments
 const defaultPort = 8787;
@@ -188,12 +189,16 @@ if (!isHeadless) {
 }
 // console.log('\x1b[90m📚 Docs:\x1b[0m \x1b[36m%s\x1b[0m', 'https://redpill.ai/docs');
 
+// Start the spend queue processor
+SpendQueue.getInstance().startSpendProcessor();
+
 // Single-line ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
 
 // Graceful shutdown
 async function gracefulShutdown() {
   try {
+    SpendQueue.getInstance().stopSpendProcessor();
     await Promise.all([closePostgresPool(), closeRedisClient()]);
   } catch (error) {
     console.error(error);
