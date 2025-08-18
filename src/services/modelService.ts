@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   getModels,
   getModelDeployment,
+  getAllModelAliases,
   type Model,
   type ModelDeployment,
 } from '../db/postgres/model';
@@ -71,13 +72,28 @@ export class ModelService {
   ): Promise<z.infer<typeof ModelSchema>[]> {
     const results = [];
 
+    // Get all aliases in one query to avoid N+1
+    const modelIds = models.map((model) => model.id);
+    const allAliases = await getAllModelAliases(modelIds);
+
+    // Group aliases by model_id for quick lookup
+    const aliasesByModelId = allAliases.reduce(
+      (acc, alias) => {
+        if (!acc[alias.model_id]) {
+          acc[alias.model_id] = [];
+        }
+        acc[alias.model_id].push(alias);
+        return acc;
+      },
+      {} as Record<number, typeof allAliases>
+    );
+
     for (const model of models) {
       const deployment = await getModelDeployment(model.model_id);
       const specs = model.specs || {};
       const config = deployment?.config || {};
 
-      const modelData = ModelSchema.parse({
-        id: model.model_id,
+      const baseModelData = {
         name: model.name,
         created: Math.floor(new Date(model.created_at).getTime() / 1000),
         input_modalities: specs.input_modalities,
@@ -91,9 +107,24 @@ export class ModelService {
         supported_sampling_parameters: specs.supported_sampling_parameters,
         supported_features: specs.supported_features,
         description: model.description,
-      });
+      };
 
-      results.push(modelData);
+      // Add the original model
+      const originalModelData = ModelSchema.parse({
+        id: model.model_id,
+        ...baseModelData,
+      });
+      results.push(originalModelData);
+
+      // Add each alias as a separate model entry
+      const modelAliases = aliasesByModelId[model.id] || [];
+      for (const alias of modelAliases) {
+        const aliasModelData = ModelSchema.parse({
+          id: alias.alias,
+          ...baseModelData,
+        });
+        results.push(aliasModelData);
+      }
     }
 
     return results;

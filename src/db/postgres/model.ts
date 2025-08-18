@@ -53,6 +53,30 @@ export async function getModels(provider?: string): Promise<Model[]> {
   return results.map((row) => ModelSchema.parse(row));
 }
 
+export async function getModelAliases(modelId: number): Promise<ModelAlias[]> {
+  const results = await queryPostgres<unknown>(
+    'SELECT * FROM model_aliases WHERE model_id = $1 AND active = true',
+    [modelId.toString()]
+  );
+  return results.map((row) => ModelAliasSchema.parse(row));
+}
+
+export async function getAllModelAliases(
+  modelIds?: number[]
+): Promise<ModelAlias[]> {
+  let query = 'SELECT * FROM model_aliases WHERE active = true';
+  let params: string[] = [];
+
+  if (modelIds && modelIds.length > 0) {
+    const placeholders = modelIds.map((_, index) => `$${index + 1}`).join(',');
+    query += ` AND model_id IN (${placeholders})`;
+    params = modelIds.map((id) => id.toString());
+  }
+
+  const results = await queryPostgres<unknown>(query, params);
+  return results.map((row) => ModelAliasSchema.parse(row));
+}
+
 export async function getModelDeployment(
   modelNameOrAlias: string
 ): Promise<ModelDeployment | null> {
