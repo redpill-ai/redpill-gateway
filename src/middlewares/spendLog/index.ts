@@ -27,7 +27,6 @@ function extractUsageFromResponse(responseData: any): Usage | null {
   return responseData.usage || null;
 }
 
-
 function extractUsageFromStreamChunk(chunkText: string): Usage | null {
   try {
     // Skip non-data lines

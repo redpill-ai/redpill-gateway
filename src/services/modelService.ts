@@ -11,6 +11,7 @@ import {
   clearCacheByPattern,
   buildCacheKey,
 } from '../db/redis';
+import { decryptConfig } from '../utils/encryption';
 
 const ModelSchema = z.object({
   id: z.string(),
@@ -117,9 +118,33 @@ export class ModelService {
       return null;
     }
 
-    // Cache the result
-    await setCache(cacheKey, deployment, 3600); // 1 hour TTL
-    return deployment;
+    // Decrypt sensitive config fields before caching
+    const deploymentWithDecryptedConfig = {
+      ...deployment,
+      config: this.decryptConfigFields(deployment.config),
+    };
+
+    // Cache the decrypted result
+    await setCache(cacheKey, deploymentWithDecryptedConfig, 86400); // 24 hours TTL
+    return deploymentWithDecryptedConfig;
+  }
+
+  private decryptConfigFields(config: any): any {
+    if (typeof config !== 'object' || config === null) {
+      return config;
+    }
+
+    const result = { ...config };
+
+    for (const [key, value] of Object.entries(config)) {
+      if (key.startsWith('encrypted_') && typeof value === 'string') {
+        const originalKey = key.replace('encrypted_', '');
+        result[originalKey] = decryptConfig(value);
+        delete result[key];
+      }
+    }
+
+    return result;
   }
 
   async clearCache(): Promise<void> {

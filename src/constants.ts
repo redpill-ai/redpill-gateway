@@ -8,6 +8,9 @@ const envSchema = z.object({
   CLICKHOUSE_USERNAME: z.string().min(1, 'CLICKHOUSE_USERNAME is required'),
   CLICKHOUSE_PASSWORD: z.string().min(1, 'CLICKHOUSE_PASSWORD is required'),
   CLICKHOUSE_DATABASE: z.string().min(1, 'CLICKHOUSE_DATABASE is required'),
+  ENCRYPTION_KEY: z
+    .string()
+    .length(64, 'ENCRYPTION_KEY must be 64 hex characters (32 bytes)'),
 });
 
 export const env = envSchema.parse(process.env);
