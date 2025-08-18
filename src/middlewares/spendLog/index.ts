@@ -2,7 +2,24 @@ import { Context } from 'hono';
 import { SpendQueue } from '../../services/spendQueue';
 import { VirtualKeyContext } from '../virtualKeyValidator/index';
 
-function extractUsageFromResponse(responseData: any): any | null {
+interface Usage {
+  input_tokens?: number;
+  output_tokens?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}
+
+interface RequestSpendData {
+  time: string;
+  method: string;
+  endpoint: string;
+  status: number;
+  duration: number;
+  usage: Usage;
+  virtualKeyContext: VirtualKeyContext;
+}
+
+function extractUsageFromResponse(responseData: any): Usage | null {
   if (!responseData || typeof responseData !== 'object') {
     return null;
   }
@@ -10,7 +27,8 @@ function extractUsageFromResponse(responseData: any): any | null {
   return responseData.usage || null;
 }
 
-function extractUsageFromStreamChunk(chunkText: string): any | null {
+
+function extractUsageFromStreamChunk(chunkText: string): Usage | null {
   try {
     // Skip non-data lines
     if (!chunkText.startsWith('data: ')) {
@@ -31,17 +49,7 @@ function extractUsageFromStreamChunk(chunkText: string): any | null {
   }
 }
 
-interface SpendLogData {
-  time: string;
-  method: string;
-  endpoint: string;
-  status: number;
-  duration: number;
-  usage: any | null;
-  virtualKeyContext: VirtualKeyContext;
-}
-
-function processSpendData(spendData: SpendLogData): void {
+function processSpendData(spendData: RequestSpendData): void {
   const { virtualKeyContext, usage } = spendData;
 
   if (!virtualKeyContext?.virtualKeyWithUser) {
@@ -51,7 +59,13 @@ function processSpendData(spendData: SpendLogData): void {
     return;
   }
 
-  const { virtualKeyWithUser, providerConfig, pricing } = virtualKeyContext;
+  const {
+    virtualKeyWithUser,
+    providerConfig,
+    pricing,
+    originalModel,
+    modelDeploymentId,
+  } = virtualKeyContext;
 
   const queueData = {
     time: spendData.time,
@@ -59,15 +73,15 @@ function processSpendData(spendData: SpendLogData): void {
     endpoint: spendData.endpoint,
     status: spendData.status,
     duration: spendData.duration,
-    usage: usage
-      ? {
-          input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
-          output_tokens: usage.output_tokens || usage.completion_tokens || 0,
-        }
-      : null,
+    usage: {
+      input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
+      output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+    },
     userId: virtualKeyWithUser.user.id,
     virtualKeyId: virtualKeyWithUser.id,
     provider: providerConfig?.provider || 'unknown',
+    model: originalModel,
+    modelDeploymentId: modelDeploymentId,
     pricing: {
       inputCostPerToken: pricing?.inputCostPerToken || 0,
       outputCostPerToken: pricing?.outputCostPerToken || 0,
@@ -96,7 +110,7 @@ export const spendLogger = () => {
 
       // Handle streaming responses
       if (contentType.includes('text/event-stream')) {
-        let streamUsage: any | null = null;
+        let streamUsage: Usage | null = null;
 
         // Create a transform stream to intercept and parse chunks
         const transformStream = new TransformStream({
@@ -118,17 +132,17 @@ export const spendLogger = () => {
 
           flush() {
             // Log spend data when stream ends
-            const spendData = {
-              time: new Date().toISOString(),
-              method,
-              endpoint,
-              status,
-              duration,
-              usage: streamUsage,
-              virtualKeyContext,
-            };
-
-            processSpendData(spendData);
+            if (streamUsage) {
+              processSpendData({
+                time: new Date().toISOString(),
+                method,
+                endpoint,
+                status,
+                duration,
+                usage: streamUsage,
+                virtualKeyContext,
+              });
+            }
           },
         });
 
@@ -149,17 +163,17 @@ export const spendLogger = () => {
         const responseData = await responseClone.json();
 
         const usage = extractUsageFromResponse(responseData);
-        const spendData = {
-          time: new Date().toISOString(),
-          method,
-          endpoint,
-          status,
-          duration,
-          usage,
-          virtualKeyContext,
-        };
-
-        processSpendData(spendData);
+        if (usage) {
+          processSpendData({
+            time: new Date().toISOString(),
+            method,
+            endpoint,
+            status,
+            duration,
+            usage,
+            virtualKeyContext,
+          });
+        }
       }
     } catch (error) {
       console.error('Error extracting spend log information:', error);

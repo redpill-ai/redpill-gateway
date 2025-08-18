@@ -4,10 +4,11 @@
 
 -- Models table - stores base model information
 CREATE TABLE models (
-    id VARCHAR(100) PRIMARY KEY,  -- e.g., 'meta-llama/llama-3.3-70b-instruct'
-    name VARCHAR(255) NOT NULL,   -- e.g., 'Llama 3.3 70B Instruct'
+    id SERIAL PRIMARY KEY,
+    model_id VARCHAR(100) UNIQUE NOT NULL,  -- e.g., 'meta-llama/llama-3.3-70b-instruct'
+    name VARCHAR(255) NOT NULL,              -- e.g., 'Llama 3.3 70B Instruct'
     description TEXT,
-    specs JSONB DEFAULT '{}',     -- model technical specifications
+    specs JSONB DEFAULT '{}',                -- model technical specifications
     active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -16,7 +17,7 @@ CREATE TABLE models (
 -- Model deployments table - stores deployment configurations for routing
 CREATE TABLE model_deployments (
     id SERIAL PRIMARY KEY,
-    model_id VARCHAR(100) NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     provider_name VARCHAR(50) NOT NULL,     -- e.g., 'openai', 'anthropic', 'inference-net'
     deployment_name VARCHAR(255) NOT NULL,  -- e.g., 'gpt-4-turbo', 'claude-3-sonnet-prod'
     config JSONB NOT NULL,                  -- deployment configuration (api, pricing, limits, routing)

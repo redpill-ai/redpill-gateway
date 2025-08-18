@@ -71,12 +71,12 @@ export class ModelService {
     const results = [];
 
     for (const model of models) {
-      const deployment = await getModelDeployment(model.id);
+      const deployment = await getModelDeployment(model.model_id);
       const specs = model.specs || {};
       const config = deployment?.config || {};
 
       const modelData = ModelSchema.parse({
-        id: model.id,
+        id: model.model_id,
         name: model.name,
         created: Math.floor(new Date(model.created_at).getTime() / 1000),
         input_modalities: specs.input_modalities,

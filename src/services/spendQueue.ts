@@ -1,6 +1,7 @@
 import { getRedisClient, buildCacheKey } from '../db/redis';
 import { updateUserBudgetsBatch } from '../db/postgres/user';
 import { updateVirtualKeyBudgetsBatch } from '../db/postgres/virtualKey';
+import { insertSpendLogs, SpendLogRow } from '../db/clickhouse';
 import Decimal from 'decimal.js';
 import msgpack from 'msgpack5';
 
@@ -13,10 +14,12 @@ interface SpendData {
   usage: {
     input_tokens: number;
     output_tokens: number;
-  } | null;
+  };
   userId: number;
   virtualKeyId: number;
   provider: string;
+  model: string;
+  modelDeploymentId: number;
   pricing: {
     inputCostPerToken: number;
     outputCostPerToken: number;
@@ -116,11 +119,10 @@ export class SpendQueue {
       // Calculate costs and group by user/key
       const userSpends = new Map<number, Decimal>();
       const keySpends = new Map<number, Decimal>();
+      const clickhouseLogs: SpendLogRow[] = [];
 
       for (const spendData of spendDataList) {
         try {
-          if (!spendData.usage) continue;
-
           const inputTokens = spendData.usage.input_tokens || 0;
           const outputTokens = spendData.usage.output_tokens || 0;
 
@@ -143,6 +145,27 @@ export class SpendQueue {
           const currentKeySpend =
             keySpends.get(spendData.virtualKeyId) || new Decimal(0);
           keySpends.set(spendData.virtualKeyId, currentKeySpend.add(cost));
+
+          // Prepare ClickHouse log entry
+          clickhouseLogs.push({
+            timestamp: new Date(spendData.time)
+              .toISOString()
+              .replace('T', ' ')
+              .replace('Z', ''),
+            endpoint: spendData.endpoint,
+            duration_ms: spendData.duration,
+            user_id: spendData.userId,
+            virtual_key_id: spendData.virtualKeyId,
+            provider: spendData.provider,
+            model: spendData.model,
+            model_deployment_id: spendData.modelDeploymentId,
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            input_cost_per_token:
+              spendData.pricing.inputCostPerToken.toString(),
+            output_cost_per_token:
+              spendData.pricing.outputCostPerToken.toString(),
+          });
         } catch (error) {
           console.error(
             '[SPEND_QUEUE] Error processing individual spend record:',
@@ -156,15 +179,12 @@ export class SpendQueue {
         }
       }
 
-      // Update budgets using batch methods
+      // Update budgets and insert ClickHouse logs
       await Promise.all([
         updateUserBudgetsBatch(userSpends),
         updateVirtualKeyBudgetsBatch(keySpends),
+        insertSpendLogs(clickhouseLogs),
       ]);
-
-      console.log(
-        `[SPEND_QUEUE] Updated budgets: ${userSpends.size} users, ${keySpends.size} keys`
-      );
     } catch (error) {
       console.error('[SPEND_QUEUE] Error processing spend queue:', error);
     } finally {

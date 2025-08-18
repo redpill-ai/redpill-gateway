@@ -1,5 +1,8 @@
 import { Context } from 'hono';
-import { validateVirtualKey, VirtualKeyWithUser } from '../../db/postgres/virtualKey';
+import {
+  validateVirtualKey,
+  VirtualKeyWithUser,
+} from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
 
 export interface VirtualKeyContext {
@@ -10,6 +13,7 @@ export interface VirtualKeyContext {
     customHost?: string;
   };
   deploymentName: string;
+  modelDeploymentId: number;
   originalModel: string;
   pricing: {
     inputCostPerToken: number;
@@ -74,6 +78,7 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
         customHost: deployment.config.base_url,
       },
       deploymentName: deployment.deployment_name,
+      modelDeploymentId: deployment.id,
       originalModel: modelName,
       pricing: {
         inputCostPerToken: deployment.config.input_cost_per_token || 0,

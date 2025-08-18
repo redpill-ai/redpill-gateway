@@ -2,7 +2,8 @@ import { queryPostgres } from './connection';
 import { z } from 'zod';
 
 export const ModelSchema = z.object({
-  id: z.string(),
+  id: z.number(),
+  model_id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   specs: z.any(),
@@ -13,7 +14,7 @@ export const ModelSchema = z.object({
 
 export const ModelDeploymentSchema = z.object({
   id: z.number(),
-  model_id: z.string(),
+  model_id: z.number(),
   provider_name: z.string(),
   deployment_name: z.string(),
   config: z.any(),
@@ -24,7 +25,7 @@ export const ModelDeploymentSchema = z.object({
 
 export const ModelAliasSchema = z.object({
   id: z.number(),
-  model_id: z.string(),
+  model_id: z.number(),
   alias: z.string(),
   active: z.boolean(),
   created_at: z.coerce.date(),
@@ -59,9 +60,9 @@ export async function getModelDeployment(
     `SELECT md.* FROM model_deployments md
      JOIN models m ON md.model_id = m.id
      LEFT JOIN model_aliases ma ON m.id = ma.model_id
-     WHERE (m.id = $1 OR ma.alias = $1) 
-       AND md.active = true 
-       AND m.active = true 
+     WHERE (m.model_id = $1 OR ma.alias = $1) 
+       AND md.active = true
+       AND m.active = true
        AND (ma.active = true OR ma.active IS NULL)
      LIMIT 1`,
     [modelNameOrAlias]

@@ -5,7 +5,6 @@ import { queryPostgres } from './connection';
 export const UserSchema = z.object({
   id: z.number(),
   email: z.string(),
-  credits: z.string().transform((val) => new Decimal(val)),
   budget_limit: z
     .string()
     .nullable()
