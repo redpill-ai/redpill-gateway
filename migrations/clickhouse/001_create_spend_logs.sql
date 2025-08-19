@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS spend_logs (
     model_deployment_id UInt64 CODEC(Delta, ZSTD),
     input_tokens UInt32 DEFAULT 0 CODEC(Delta, ZSTD),
     output_tokens UInt32 DEFAULT 0 CODEC(Delta, ZSTD),
+    raw_usage String DEFAULT '{}' CODEC(ZSTD),
     input_cost_per_token Decimal128(18) CODEC(ZSTD),
     output_cost_per_token Decimal128(18) CODEC(ZSTD),
     input_cost Decimal128(18) MATERIALIZED input_tokens * input_cost_per_token,

@@ -76,6 +76,7 @@ function processSpendData(spendData: RequestSpendData): void {
       input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
       output_tokens: usage.output_tokens || usage.completion_tokens || 0,
     },
+    rawUsage: JSON.stringify(usage),
     userId: virtualKeyWithUser.user.id,
     virtualKeyId: virtualKeyWithUser.id,
     provider: providerConfig?.provider || 'unknown',

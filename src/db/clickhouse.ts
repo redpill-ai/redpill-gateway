@@ -27,6 +27,7 @@ export interface SpendLogRow {
   model_deployment_id: number;
   input_tokens: number;
   output_tokens: number;
+  raw_usage: string;
   input_cost_per_token: string;
   output_cost_per_token: string;
 }

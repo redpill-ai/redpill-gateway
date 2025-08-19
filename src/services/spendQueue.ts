@@ -15,6 +15,7 @@ interface SpendData {
     input_tokens: number;
     output_tokens: number;
   };
+  rawUsage: string;
   userId: number;
   virtualKeyId: number;
   provider: string;
@@ -161,6 +162,7 @@ export class SpendQueue {
             model_deployment_id: spendData.modelDeploymentId,
             input_tokens: inputTokens,
             output_tokens: outputTokens,
+            raw_usage: spendData.rawUsage,
             input_cost_per_token:
               spendData.pricing.inputCostPerToken.toString(),
             output_cost_per_token:
