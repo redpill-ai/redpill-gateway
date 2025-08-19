@@ -33,9 +33,9 @@ export function hashApiKey(apiKey: string): string {
   return createHash('sha256').update(apiKey).digest('hex');
 }
 
-export async function validateVirtualKey(
+export async function findVirtualKeyWithUser(
   apiKey: string
-): Promise<{ virtualKeyWithUser: VirtualKeyWithUser } | { error: string }> {
+): Promise<VirtualKeyWithUser | null> {
   const apiKeyHash = hashApiKey(apiKey);
   try {
     const result = await queryPostgres<unknown>(
@@ -57,40 +57,20 @@ export async function validateVirtualKey(
     );
 
     if (result.length === 0) {
-      return { error: 'Invalid API key' };
+      return null;
     }
 
     const row = result[0];
     const virtualKey = VirtualKeySchema.parse(row);
     const user = UserSchema.parse((row as { user: unknown }).user);
 
-    const virtualKeyWithUser: VirtualKeyWithUser = {
+    return {
       ...virtualKey,
       user,
     };
-
-    // Check user budget
-    if (
-      virtualKeyWithUser.user.budget_limit &&
-      virtualKeyWithUser.user.budget_used.gte(
-        virtualKeyWithUser.user.budget_limit
-      )
-    ) {
-      return { error: 'Account quota exceeded' };
-    }
-
-    // Check virtual key budget
-    if (
-      virtualKeyWithUser.budget_limit &&
-      virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
-    ) {
-      return { error: 'API key quota exceeded' };
-    }
-
-    return { virtualKeyWithUser };
   } catch (error) {
-    console.error('Virtual key validation error:', error);
-    return { error: 'Virtual key validation failed' };
+    console.error('Virtual key query error:', error);
+    return null;
   }
 }
 

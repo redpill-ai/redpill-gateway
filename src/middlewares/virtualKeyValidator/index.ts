@@ -1,6 +1,6 @@
 import { Context } from 'hono';
 import {
-  validateVirtualKey,
+  findVirtualKeyWithUser,
   VirtualKeyWithUser,
 } from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
@@ -36,6 +36,30 @@ const createErrorResponse = (status: number, message: string) => {
   );
 };
 
+const validateBudgetLimits = (
+  virtualKeyWithUser: VirtualKeyWithUser
+): string | null => {
+  // Check user budget
+  if (
+    virtualKeyWithUser.user.budget_limit &&
+    virtualKeyWithUser.user.budget_used.gte(
+      virtualKeyWithUser.user.budget_limit
+    )
+  ) {
+    return 'Account quota exceeded';
+  }
+
+  // Check virtual key budget
+  if (
+    virtualKeyWithUser.budget_limit &&
+    virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
+  ) {
+    return 'API key quota exceeded';
+  }
+
+  return null;
+};
+
 export const virtualKeyValidator = async (c: Context, next: any) => {
   const requestHeaders = Object.fromEntries(c.req.raw.headers);
   const apiKey = requestHeaders['authorization']?.replace('Bearer ', '');
@@ -44,10 +68,16 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
     return next();
   }
 
-  // Validate API key
-  const validationResult = await validateVirtualKey(apiKey);
-  if ('error' in validationResult) {
-    return createErrorResponse(401, validationResult.error);
+  // Find virtual key with user data
+  const virtualKeyWithUser = await findVirtualKeyWithUser(apiKey);
+  if (!virtualKeyWithUser) {
+    return createErrorResponse(401, 'Invalid API key');
+  }
+
+  // Validate budget limits
+  const budgetError = validateBudgetLimits(virtualKeyWithUser);
+  if (budgetError) {
+    return createErrorResponse(401, budgetError);
   }
 
   try {
@@ -71,7 +101,7 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
 
     // Store virtual key context for billing and provider config override
     c.set('virtualKeyContext', {
-      virtualKeyWithUser: validationResult.virtualKeyWithUser,
+      virtualKeyWithUser,
       providerConfig: {
         provider: deployment.provider_name,
         apiKey: deployment.config.api_key,

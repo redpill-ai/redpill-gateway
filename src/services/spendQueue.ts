@@ -32,7 +32,7 @@ export class SpendQueue {
   private readonly mp = msgpack();
   private readonly SPEND_QUEUE_KEY = buildCacheKey('spend', 'queue');
   private readonly SPEND_LOCK_KEY = buildCacheKey('spend', 'lock');
-  private readonly LOCK_TTL = 30; // 30 seconds
+  private readonly LOCK_TTL = 60; // 60 seconds
   private processingInterval: NodeJS.Timeout | null = null;
 
   private constructor() {}
@@ -85,8 +85,15 @@ export class SpendQueue {
         return;
       }
 
+      // Alert when queue is backing up
+      if (queueLength > 5000) {
+        console.warn(
+          `[SPEND_QUEUE] High backlog detected: ${queueLength} items in queue`
+        );
+      }
+
       // Get batch of spend data from queue
-      const batchSize = Math.min(500, queueLength);
+      const batchSize = Math.min(1000, queueLength);
 
       const pipeline = client.multi();
       for (let i = 0; i < batchSize; i++) {
