@@ -9,9 +9,19 @@ export function buildCacheKey(...parts: string[]): string {
 
 export async function getRedisClient(): Promise<RedisClientType> {
   if (!redisClient) {
-    redisClient = createClient({
-      url: env.REDIS_URL,
-    });
+    const redisConfig: any = {
+      socket: {
+        host: env.REDIS_HOST,
+        port: env.REDIS_PORT,
+      },
+      database: env.REDIS_DB,
+    };
+
+    if (env.REDIS_PASSWORD) {
+      redisConfig.password = env.REDIS_PASSWORD;
+    }
+
+    redisClient = createClient(redisConfig);
 
     redisClient.on('error', (err) => {
       console.error('Redis error:', err);

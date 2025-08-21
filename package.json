@@ -1,6 +1,6 @@
 {
   "name": "redpill-gateway",
-  "version": "1.11.1",
+  "version": "1.0.0",
   "description": "A fast AI gateway",
   "private": true,
   "keywords": [
@@ -68,6 +68,9 @@
     "tsx": "^4.7.0",
     "typescript-eslint": "^8.1.0",
     "wrangler": "^3.97.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-musl": "4.34.7"
   },
   "bin": "build/start-server.js",
   "type": "module"

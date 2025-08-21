@@ -7,7 +7,8 @@ export const requestValidator = (c: Context, next: any) => {
   return new Response(
     JSON.stringify({
       status: 'failure',
-      message: 'This endpoint is not supported. Please use supported endpoints.',
+      message:
+        'This endpoint is not supported. Please use supported endpoints.',
     }),
     {
       status: 400,
