@@ -3,6 +3,20 @@ import { CONTENT_TYPES, POWERED_BY, VALID_PROVIDERS } from '../../globals';
 import { configSchema } from './schema/config';
 
 export const requestValidator = (c: Context, next: any) => {
+  // Block all requests that use the old gateway forwarding functionality
+  return new Response(
+    JSON.stringify({
+      status: 'failure',
+      message: 'This endpoint is not supported. Please use supported endpoints.',
+    }),
+    {
+      status: 400,
+      headers: {
+        'content-type': 'application/json',
+      },
+    }
+  );
+
   const requestHeaders = Object.fromEntries(c.req.raw.headers);
 
   const contentType = requestHeaders['content-type'];
