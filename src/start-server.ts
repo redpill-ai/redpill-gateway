@@ -35,38 +35,14 @@ const url = `http://localhost:${port}`;
 
 injectWebSocket(server);
 
-// Loading animation function
-async function showLoadingAnimation() {
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  let i = 0;
-
-  return new Promise((resolve) => {
-    const interval = setInterval(() => {
-      process.stdout.write(`\r${frames[i]} Starting AI Gateway...`);
-      i = (i + 1) % frames.length;
-    }, 80);
-
-    // Stop after 1 second
-    setTimeout(() => {
-      clearInterval(interval);
-      process.stdout.write('\r');
-      resolve(undefined);
-    }, 1000);
-  });
-}
-
-// Clear the console and show animation before main output
-console.clear();
-await showLoadingAnimation();
-
-// Main server information with minimal spacing
-console.log('\x1b[1m%s\x1b[0m', '🚀 Your AI Gateway is running at:');
+// Main server information
+console.log('\x1b[1m%s\x1b[0m', '🚀 Gateway is running at:');
 console.log('   ' + '\x1b[1;4;32m%s\x1b[0m', `${url}`);
 
 // Start the spend queue processor
 SpendQueue.getInstance().startSpendProcessor();
 
-// Single-line ready message
+// Ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
 
 // Graceful shutdown
