@@ -4,9 +4,10 @@ import {
   VirtualKeyWithUser,
 } from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
+import { env } from '../../constants';
 
 export interface VirtualKeyContext {
-  virtualKeyWithUser: VirtualKeyWithUser;
+  virtualKeyWithUser: VirtualKeyWithUser | null;
   providerConfig: {
     provider: string;
     apiKey: string;
@@ -19,6 +20,16 @@ export interface VirtualKeyContext {
     inputCostPerToken: number;
     outputCostPerToken: number;
   };
+}
+
+class VirtualKeyValidationError extends Error {
+  public readonly statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = 'VirtualKeyValidationError';
+    this.statusCode = statusCode;
+  }
 }
 
 const createErrorResponse = (status: number, message: string) => {
@@ -36,9 +47,68 @@ const createErrorResponse = (status: number, message: string) => {
   );
 };
 
-const validateBudgetLimits = (
-  virtualKeyWithUser: VirtualKeyWithUser
-): string | null => {
+const createVirtualKeyContext = async (
+  modelName: string,
+  virtualKeyWithUser: VirtualKeyWithUser | null = null
+): Promise<VirtualKeyContext> => {
+  const modelService = new ModelService();
+  const deployment = await modelService.getModelDeploymentForModel(modelName);
+
+  if (!deployment) {
+    throw new VirtualKeyValidationError(
+      `Model '${modelName}' is not available`,
+      404
+    );
+  }
+
+  return {
+    virtualKeyWithUser,
+    providerConfig: {
+      provider: deployment.provider_name,
+      apiKey: deployment.config.api_key,
+      customHost: deployment.config.base_url,
+    },
+    deploymentName: deployment.deployment_name,
+    modelDeploymentId: deployment.id,
+    originalModel: modelName,
+    pricing: {
+      inputCostPerToken: deployment.config.input_cost_per_token || 0,
+      outputCostPerToken: deployment.config.output_cost_per_token || 0,
+    },
+  };
+};
+
+const isPublicEndpoint = (path: string): boolean => {
+  return (
+    path.startsWith('/v1/attestation/report') ||
+    path.startsWith('/v1/signature/')
+  );
+};
+
+const isModelAllowed = (model: string): boolean => {
+  const allowedModels = env.FREE_ALLOWED_MODELS.split(',').map((m) => m.trim());
+  return allowedModels.includes(model);
+};
+
+const handlePublicEndpoint = async (
+  c: Context,
+  modelName: string
+): Promise<void> => {
+  const virtualKeyContext = await createVirtualKeyContext(modelName);
+  c.set('virtualKeyContext', virtualKeyContext);
+};
+
+const handleAuthenticatedUser = async (
+  c: Context,
+  apiKey: string,
+  modelName: string
+): Promise<void> => {
+  // Find virtual key with user data
+  const virtualKeyWithUser = await findVirtualKeyWithUser(apiKey);
+  if (!virtualKeyWithUser) {
+    throw new VirtualKeyValidationError('Invalid API key', 401);
+  }
+
   // Check user budget
   if (
     virtualKeyWithUser.user.budget_limit &&
@@ -46,7 +116,7 @@ const validateBudgetLimits = (
       virtualKeyWithUser.user.budget_limit
     )
   ) {
-    return 'Account quota exceeded';
+    throw new VirtualKeyValidationError('Account quota exceeded', 401);
   }
 
   // Check virtual key budget
@@ -54,70 +124,64 @@ const validateBudgetLimits = (
     virtualKeyWithUser.budget_limit &&
     virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
   ) {
-    return 'API key quota exceeded';
+    throw new VirtualKeyValidationError('API key quota exceeded', 401);
   }
 
-  return null;
+  const virtualKeyContext = await createVirtualKeyContext(
+    modelName,
+    virtualKeyWithUser
+  );
+  c.set('virtualKeyContext', virtualKeyContext);
+};
+
+const handleAnonymousUser = async (
+  c: Context,
+  modelName: string
+): Promise<void> => {
+  // Check if model is allowed for free usage
+  if (!isModelAllowed(modelName)) {
+    throw new VirtualKeyValidationError(
+      'Add credits to access this model',
+      403
+    );
+  }
+
+  // Set virtual key context for anonymous users
+  const virtualKeyContext = await createVirtualKeyContext(modelName);
+  c.set('virtualKeyContext', virtualKeyContext);
 };
 
 export const virtualKeyValidator = async (c: Context, next: any) => {
   const requestHeaders = Object.fromEntries(c.req.raw.headers);
   const apiKey = requestHeaders['authorization']?.replace('Bearer ', '');
-
-  if (!apiKey) {
-    return next();
-  }
-
-  // Find virtual key with user data
-  const virtualKeyWithUser = await findVirtualKeyWithUser(apiKey);
-  if (!virtualKeyWithUser) {
-    return createErrorResponse(401, 'Invalid API key');
-  }
-
-  // Validate budget limits
-  const budgetError = validateBudgetLimits(virtualKeyWithUser);
-  if (budgetError) {
-    return createErrorResponse(401, budgetError);
-  }
+  const requestPath = new URL(c.req.url).pathname;
 
   try {
-    // Get model name from body for POST requests or query params for other requests
+    // Get model name once for all handlers
     const modelName =
       c.req.method === 'POST'
         ? (await c.req.json())?.model ?? ''
         : c.req.query('model') || '';
 
     if (!modelName) {
-      return createErrorResponse(400, 'Model parameter is required');
+      throw new VirtualKeyValidationError('Model parameter is required', 400);
     }
 
-    // Get model deployment for the requested model
-    const modelService = new ModelService();
-    const deployment = await modelService.getModelDeploymentForModel(modelName);
-
-    if (!deployment) {
-      return createErrorResponse(404, `Model '${modelName}' is not available`);
+    if (isPublicEndpoint(requestPath)) {
+      await handlePublicEndpoint(c, modelName);
+    } else if (apiKey) {
+      await handleAuthenticatedUser(c, apiKey, modelName);
+    } else {
+      await handleAnonymousUser(c, modelName);
     }
-
-    // Store virtual key context for billing and provider config override
-    c.set('virtualKeyContext', {
-      virtualKeyWithUser,
-      providerConfig: {
-        provider: deployment.provider_name,
-        apiKey: deployment.config.api_key,
-        customHost: deployment.config.base_url,
-      },
-      deploymentName: deployment.deployment_name,
-      modelDeploymentId: deployment.id,
-      originalModel: modelName,
-      pricing: {
-        inputCostPerToken: deployment.config.input_cost_per_token || 0,
-        outputCostPerToken: deployment.config.output_cost_per_token || 0,
-      },
-    });
   } catch (error) {
-    console.error('Virtual key middleware error:', error);
-    return createErrorResponse(500, 'Internal server error');
+    console.error('Virtual key validation error:', error);
+
+    if (error instanceof VirtualKeyValidationError) {
+      return createErrorResponse(error.statusCode, error.message);
+    }
+
+    return createErrorResponse(500, 'Service temporarily unavailable');
   }
 
   return next();

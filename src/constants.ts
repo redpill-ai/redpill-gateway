@@ -14,6 +14,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .length(64, 'ENCRYPTION_KEY must be 64 hex characters (32 bytes)'),
+  FREE_ALLOWED_MODELS: z.string().default('qwen/qwen-2.5-7b-instruct'),
 });
 
 export const env = envSchema.parse(process.env);

@@ -8,6 +8,7 @@ import { Context, Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { HTTPException } from 'hono/http-exception';
 import { compress } from 'hono/compress';
+import { cors } from 'hono/cors';
 import { getRuntimeKey } from 'hono/adapter';
 // import { env } from 'hono/adapter' // Have to set this up for multi-environment deployment
 
@@ -84,6 +85,9 @@ if (runtime === 'node') {
  * Returns a greeting message.
  */
 app.get('/', (c) => c.text('AI Gateway says hey!'));
+
+// Use CORS middleware for all routes
+app.use('*', cors());
 
 // Use prettyJSON middleware for all routes
 app.use('*', prettyJSON());
