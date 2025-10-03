@@ -5,6 +5,7 @@ import {
 } from '../../db/postgres/virtualKey';
 import { ModelService } from '../../services/modelService';
 import { env } from '../../constants';
+import { hash } from '../../utils/hash';
 
 export interface VirtualKeyContext {
   virtualKeyWithUser: VirtualKeyWithUser | null;
@@ -20,6 +21,7 @@ export interface VirtualKeyContext {
     inputCostPerToken: number;
     outputCostPerToken: number;
   };
+  requestHash?: string;
 }
 
 class VirtualKeyValidationError extends Error {
@@ -48,6 +50,7 @@ const createErrorResponse = (status: number, message: string) => {
 };
 
 const createVirtualKeyContext = async (
+  c: Context,
   modelName: string,
   virtualKeyWithUser: VirtualKeyWithUser | null = null
 ): Promise<VirtualKeyContext> => {
@@ -59,6 +62,13 @@ const createVirtualKeyContext = async (
       `Model '${modelName}' is not available`,
       404
     );
+  }
+
+  // Calculate hash for Phala provider requests
+  let requestHash: string | undefined;
+  if (deployment.provider_name === 'phala' && c.req.method === 'POST') {
+    const rawBody = await c.req.text();
+    requestHash = hash(rawBody);
   }
 
   return {
@@ -75,6 +85,7 @@ const createVirtualKeyContext = async (
       inputCostPerToken: deployment.config.input_cost_per_token || 0,
       outputCostPerToken: deployment.config.output_cost_per_token || 0,
     },
+    requestHash,
   };
 };
 
@@ -94,7 +105,7 @@ const handlePublicEndpoint = async (
   c: Context,
   modelName: string
 ): Promise<void> => {
-  const virtualKeyContext = await createVirtualKeyContext(modelName);
+  const virtualKeyContext = await createVirtualKeyContext(c, modelName);
   c.set('virtualKeyContext', virtualKeyContext);
 };
 
@@ -111,7 +122,7 @@ const handleAuthenticatedUser = async (
 
   // Check user budget
   if (
-    virtualKeyWithUser.user.budget_limit &&
+    virtualKeyWithUser.user.budget_limit !== undefined &&
     virtualKeyWithUser.user.budget_used.gte(
       virtualKeyWithUser.user.budget_limit
     )
@@ -121,13 +132,14 @@ const handleAuthenticatedUser = async (
 
   // Check virtual key budget
   if (
-    virtualKeyWithUser.budget_limit &&
+    virtualKeyWithUser.budget_limit !== undefined &&
     virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
   ) {
     throw new VirtualKeyValidationError('API key quota exceeded', 401);
   }
 
   const virtualKeyContext = await createVirtualKeyContext(
+    c,
     modelName,
     virtualKeyWithUser
   );
@@ -147,7 +159,7 @@ const handleAnonymousUser = async (
   }
 
   // Set virtual key context for anonymous users
-  const virtualKeyContext = await createVirtualKeyContext(modelName);
+  const virtualKeyContext = await createVirtualKeyContext(c, modelName);
   c.set('virtualKeyContext', virtualKeyContext);
 };
 
@@ -157,11 +169,14 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
   const requestPath = new URL(c.req.url).pathname;
 
   try {
-    // Get model name once for all handlers
-    const modelName =
-      c.req.method === 'POST'
-        ? (await c.req.json())?.model ?? ''
-        : c.req.query('model') || '';
+    let modelName = '';
+    if (c.req.method === 'POST') {
+      const rawBody = await c.req.text();
+      const parsedBody = JSON.parse(rawBody);
+      modelName = parsedBody?.model ?? '';
+    } else {
+      modelName = c.req.query('model') || '';
+    }
 
     if (!modelName) {
       throw new VirtualKeyValidationError('Model parameter is required', 400);

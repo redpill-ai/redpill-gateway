@@ -135,6 +135,9 @@ function constructRequestHeaders(
     ...headers,
     ...forwardHeadersMap,
     ...(fn === 'proxy' && proxyHeaders),
+    ...(requestHeaders['x-request-hash'] && {
+      'x-request-hash': requestHeaders['x-request-hash'],
+    }),
   };
 
   const contentType = headers['content-type']?.split(';')[0];
@@ -839,6 +842,9 @@ export function overrideProviderHeadersFromContext(
     ...(virtualKeyContext.providerConfig.customHost && {
       [`x-${POWERED_BY}-custom-host`]:
         virtualKeyContext.providerConfig.customHost,
+    }),
+    ...(virtualKeyContext.requestHash && {
+      'x-request-hash': virtualKeyContext.requestHash,
     }),
   };
 }
