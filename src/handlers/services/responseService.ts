@@ -124,9 +124,13 @@ export class ResponseService {
     // Remove headers directly
     if (getRuntimeKey() == 'node') {
       response.headers.delete('content-encoding');
+      response.headers.delete('transfer-encoding');
     }
+
+    // Delete content-length header to avoid conflicts with hono compress middleware
+    // workerd environment handles this authomatically
     response.headers.delete('content-length');
-    // response.headers.delete('transfer-encoding');
+    response.headers.delete('transfer-encoding');
 
     return response;
   }
