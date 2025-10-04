@@ -14,6 +14,26 @@ import { OpenAICompleteResponse } from '../providers/openai/complete';
 import { Params } from '../types/requestBody';
 import { getStreamModeSplitPattern, type SplitPatternType } from '../utils';
 
+function isNetworkConnectionError(error: any): boolean {
+  if (error?.name === 'AbortError') {
+    return true;
+  }
+
+  const networkErrorCodes = [
+    'UND_ERR_SOCKET',
+    // 'ECONNRESET',
+    // 'ECONNREFUSED',
+    // 'ETIMEDOUT',
+    // 'ENOTFOUND',
+    // 'ENETUNREACH',
+  ];
+
+  return (
+    networkErrorCodes.includes(error?.code) ||
+    networkErrorCodes.includes(error?.cause?.code)
+  );
+}
+
 function readUInt32BE(buffer: Uint8Array, offset: number) {
   return (
     ((buffer[offset] << 24) |
@@ -321,7 +341,13 @@ export function handleStreamingMode(
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
-        console.error('Error during stream processing:', proxyProvider, error);
+        if (!isNetworkConnectionError(error)) {
+          console.error(
+            'Error during stream processing:',
+            proxyProvider,
+            error
+          );
+        }
       } finally {
         try {
           await writer.close();
@@ -349,7 +375,13 @@ export function handleStreamingMode(
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
-        console.error('Error during stream processing:', proxyProvider, error);
+        if (!isNetworkConnectionError(error)) {
+          console.error(
+            'Error during stream processing:',
+            proxyProvider,
+            error
+          );
+        }
       } finally {
         try {
           await writer.close();
