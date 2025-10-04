@@ -190,12 +190,11 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
       await handleAnonymousUser(c, modelName);
     }
   } catch (error) {
-    console.error('Virtual key validation error:', error);
-
     if (error instanceof VirtualKeyValidationError) {
       return createErrorResponse(error.statusCode, error.message);
     }
 
+    console.error('Virtual key validation error:', error);
     return createErrorResponse(500, 'Service temporarily unavailable');
   }
 
