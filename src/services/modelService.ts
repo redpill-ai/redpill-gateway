@@ -99,7 +99,7 @@ export class ModelService {
         input_modalities: specs.input_modalities,
         output_modalities: specs.output_modalities,
         context_length: specs.context_length,
-        max_output_length: specs.max_output_tokens,
+        max_output_length: specs.max_output_tokens || specs.context_length,
         pricing: {
           prompt: config.input_cost_per_token,
           completion: config.output_cost_per_token,
