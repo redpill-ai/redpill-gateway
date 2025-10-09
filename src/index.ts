@@ -262,6 +262,7 @@ app.post('/v1/prompts/*', requestValidator, (c) => {
 });
 
 app.get('/v1/models', modelsHandler);
+app.get('/v1/models/:provider', modelsHandler);
 
 // WebSocket route
 if (runtime === 'workerd') {

@@ -8,7 +8,8 @@ import { ModelService } from '../services/modelService';
  * @returns - The response
  */
 export async function modelsHandler(c: Context): Promise<Response> {
-  const provider = c.req.query('provider');
+  // Support both query parameter and path parameter for provider filtering
+  const provider = c.req.param('provider') || c.req.query('provider');
   const modelService = new ModelService();
 
   try {
