@@ -43,6 +43,7 @@ export async function findVirtualKeyWithUser(
               json_build_object(
                 'id', u.id,
                 'email', u.email,
+                'user_tier', u.user_tier,
                 'budget_limit', u.budget_limit::text,
                 'budget_used', u.budget_used::text,
                 'rate_limit_rpm', u.rate_limit_rpm,

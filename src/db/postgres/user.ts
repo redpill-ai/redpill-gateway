@@ -4,6 +4,7 @@ import { queryPostgres } from './connection';
 
 export const UserSchema = z.object({
   id: z.number(),
+  user_tier: z.string(),
   email: z.string(),
   budget_limit: z
     .string()

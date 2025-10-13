@@ -5,6 +5,7 @@
 -- Users table - stores user accounts and quotas
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
+    user_tier VARCHAR(50) NOT NULL,
     username VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     budget_limit DECIMAL(30,18),             -- null = unlimited budget

@@ -138,6 +138,9 @@ function constructRequestHeaders(
     ...(requestHeaders['x-request-hash'] && {
       'x-request-hash': requestHeaders['x-request-hash'],
     }),
+    ...(requestHeaders['x-user-tier'] && {
+      'x-user-tier': requestHeaders['x-user-tier'],
+    }),
   };
 
   const contentType = headers['content-type']?.split(';')[0];
@@ -846,6 +849,13 @@ export function overrideProviderHeadersFromContext(
     ...(virtualKeyContext.requestHash && {
       'x-request-hash': virtualKeyContext.requestHash,
     }),
+    ...(virtualKeyContext.virtualKeyWithUser?.user.user_tier === 'ENTERPRISE'
+      ? {
+          'x-user-tier': 'basic',
+        }
+      : {
+          'x-user-tier': 'premium',
+        }),
   };
 }
 
