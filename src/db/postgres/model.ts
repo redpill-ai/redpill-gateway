@@ -84,7 +84,7 @@ export async function getModelDeployment(
     `SELECT md.* FROM model_deployments md
      JOIN models m ON md.model_id = m.id
      LEFT JOIN model_aliases ma ON m.id = ma.model_id
-     WHERE (m.model_id = $1 OR ma.alias = $1) 
+     WHERE (m.model_id = $1 OR ma.alias = $1)
        AND md.active = true
        AND m.active = true
        AND (ma.active = true OR ma.active IS NULL)

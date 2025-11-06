@@ -35,6 +35,11 @@ const ModelSchema = z.object({
   supported_sampling_parameters: z.array(z.string()).default(['temperature']),
   supported_features: z.array(z.string()).default([]),
   description: z.string().optional(),
+  metadata: z
+    .object({
+      appid: z.string().optional(),
+    })
+    .default({}),
 });
 
 export class ModelService {
@@ -107,6 +112,13 @@ export class ModelService {
         supported_sampling_parameters: specs.supported_sampling_parameters,
         supported_features: specs.supported_features,
         description: model.description,
+        ...(config.appid
+          ? {
+              metadata: {
+                appid: config.appid,
+              },
+            }
+          : undefined),
       };
 
       // Add the original model
