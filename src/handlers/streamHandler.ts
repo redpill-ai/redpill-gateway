@@ -327,9 +327,72 @@ export function handleStreamingMode(
   const reader = response.body.getReader();
   const isSleepTimeRequired = proxyProvider === AZURE_OPEN_AI ? true : false;
   const encoder = new TextEncoder();
+  let downstreamClosed = false;
+  let upstreamCancelled = false;
+  let upstreamCompleted = false;
+
+  const cancelUpstreamReader = async (reason?: unknown) => {
+    if (upstreamCancelled) {
+      return;
+    }
+    upstreamCancelled = true;
+    try {
+      await reader.cancel(reason);
+    } catch (cancelError: any) {
+      if (
+        cancelError?.name === 'TypeError' &&
+        cancelError?.message === 'terminated'
+      ) {
+        // Reader already torn down — nothing else to do.
+        return;
+      }
+      console.error(
+        'Failed to cancel upstream reader:',
+        proxyProvider,
+        cancelError
+      );
+    }
+  };
+
+  writer.closed.catch((error) => {
+    downstreamClosed = true;
+    if (!upstreamCompleted) {
+      cancelUpstreamReader(error).catch((cancelError: any) => {
+        if (
+          cancelError?.name === 'TypeError' &&
+          cancelError?.message === 'terminated'
+        ) {
+          return;
+        }
+        console.error(
+          'Error raised while cancelling upstream reader:',
+          proxyProvider,
+          cancelError
+        );
+      });
+    }
+  });
+
+  const writeChunk = async (chunk: string | Uint8Array) => {
+    if (chunk === undefined || downstreamClosed) {
+      return;
+    }
+
+    const payload = chunk instanceof Uint8Array ? chunk : encoder.encode(chunk);
+
+    try {
+      await writer.write(payload);
+    } catch (error) {
+      downstreamClosed = true;
+      if (!upstreamCompleted) {
+        await cancelUpstreamReader(error);
+      }
+      throw error;
+    }
+  };
 
   if (proxyProvider === BEDROCK) {
-    (async () => {
+    void (async () => {
       try {
         for await (const chunk of readAWSStream(
           reader,
@@ -338,10 +401,11 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
-          await writer.write(encoder.encode(chunk));
+          await writeChunk(chunk);
         }
+        upstreamCompleted = true;
       } catch (error) {
-        if (!isNetworkConnectionError(error)) {
+        if (!downstreamClosed && !isNetworkConnectionError(error)) {
           console.error(
             'Error during stream processing:',
             proxyProvider,
@@ -349,19 +413,24 @@ export function handleStreamingMode(
           );
         }
       } finally {
-        try {
-          await writer.close();
-        } catch (closeError) {
-          console.error(
-            'Failed to close the writer:',
-            proxyProvider,
-            closeError
-          );
+        if (!downstreamClosed) {
+          try {
+            await writer.close();
+          } catch (closeError) {
+            console.error(
+              'Failed to close the writer:',
+              proxyProvider,
+              closeError
+            );
+          }
+        }
+        if (!upstreamCompleted && !upstreamCancelled) {
+          await cancelUpstreamReader();
         }
       }
     })();
   } else {
-    (async () => {
+    void (async () => {
       try {
         for await (const chunk of readStream(
           reader,
@@ -372,10 +441,11 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
-          await writer.write(encoder.encode(chunk));
+          await writeChunk(chunk);
         }
+        upstreamCompleted = true;
       } catch (error) {
-        if (!isNetworkConnectionError(error)) {
+        if (!downstreamClosed && !isNetworkConnectionError(error)) {
           console.error(
             'Error during stream processing:',
             proxyProvider,
@@ -383,14 +453,19 @@ export function handleStreamingMode(
           );
         }
       } finally {
-        try {
-          await writer.close();
-        } catch (closeError) {
-          console.error(
-            'Failed to close the writer:',
-            proxyProvider,
-            closeError
-          );
+        if (!downstreamClosed) {
+          try {
+            await writer.close();
+          } catch (closeError) {
+            console.error(
+              'Failed to close the writer:',
+              proxyProvider,
+              closeError
+            );
+          }
+        }
+        if (!upstreamCompleted && !upstreamCancelled) {
+          await cancelUpstreamReader();
         }
       }
     })();
