@@ -22,7 +22,6 @@ async function fetchWithTimeout(
     } else {
       response = await fetch(url, timeoutRequestOptions);
     }
-    clearTimeout(timeoutId);
   } catch (err: any) {
     if (err.name === 'AbortError') {
       response = new Response(
@@ -44,6 +43,9 @@ async function fetchWithTimeout(
     } else {
       throw err;
     }
+  } finally {
+    clearTimeout(timeoutId);
+    controller.abort();
   }
 
   return response;

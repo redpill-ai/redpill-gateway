@@ -5,6 +5,7 @@ import { RequestContext } from './requestContext';
 import { ProviderContext } from './providerContext';
 import { ToolCall } from '../../types/requestBody';
 import { z } from 'zod';
+import conf from '../../../conf.json';
 
 const LogObjectSchema = z.object({
   providerOptions: z.object({
@@ -207,7 +208,14 @@ export class LogsService {
   }
 
   addRequestLog(log: any) {
-    this.honoContext.set('requestOptions', [...this.requestLogs, log]);
+    // Only collect logs if caching is enabled
+    if (!conf.cache) {
+      return;
+    }
+
+    // Keep only the last log entry (current request)
+    // This is all that cache middleware needs
+    this.honoContext.set('requestOptions', [log]);
   }
 }
 

@@ -93,9 +93,9 @@ app.use('*', cors());
 app.use('*', prettyJSON());
 
 // Use logger middleware for all routes
-if (getRuntimeKey() === 'node') {
-  app.use(logger());
-}
+// if (getRuntimeKey() === 'node') {
+//   app.use(logger());
+// }
 
 // Use hooks middleware for all routes
 app.use('*', hooks);
