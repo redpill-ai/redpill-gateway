@@ -1,6 +1,13 @@
 import { Context } from 'hono';
 
-const inMemoryCache: any = {};
+// Cache with size limit and automatic eviction
+// LRU-style: when capacity is exceeded, oldest entries are removed first
+const inMemoryCache: Map<
+  string,
+  { responseBody: string; maxAge: number | null; timestamp: number }
+> = new Map();
+const MAX_CACHE_SIZE = 1000; // Maximum number of cache entries
+const EVICTION_BATCH_SIZE = 100; // Remove this many oldest entries when capacity is exceeded
 
 const CACHE_STATUS = {
   HIT: 'HIT',
@@ -41,10 +48,10 @@ export const getFromCache = async (
   try {
     const cacheKey = await getCacheKey(requestBody, url);
 
-    if (cacheKey in inMemoryCache) {
-      const cacheObject = inMemoryCache[cacheKey];
+    if (inMemoryCache.has(cacheKey)) {
+      const cacheObject = inMemoryCache.get(cacheKey)!;
       if (cacheObject.maxAge && cacheObject.maxAge < Date.now()) {
-        delete inMemoryCache[cacheKey];
+        inMemoryCache.delete(cacheKey);
         return [null, CACHE_STATUS.MISS, null];
       }
       return [cacheObject.responseBody, CACHE_STATUS.HIT, cacheKey];
@@ -74,10 +81,22 @@ export const putInCache = async (
 
   const cacheKey = await getCacheKey(requestBody, url);
 
-  inMemoryCache[cacheKey] = {
+  // Check if we need to evict old entries
+  if (inMemoryCache.size >= MAX_CACHE_SIZE) {
+    // Remove oldest entries (FIFO-style eviction using Map iteration order)
+    let evicted = 0;
+    for (const key of inMemoryCache.keys()) {
+      if (evicted >= EVICTION_BATCH_SIZE) break;
+      inMemoryCache.delete(key);
+      evicted++;
+    }
+  }
+
+  inMemoryCache.set(cacheKey, {
     responseBody: JSON.stringify(responseBody),
     maxAge: cacheMaxAge,
-  };
+    timestamp: Date.now(),
+  });
 };
 
 export const memoryCache = () => {
