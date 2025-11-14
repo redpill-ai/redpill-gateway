@@ -125,33 +125,9 @@ See [Documentation](https://docs.redpill.ai) for complete verification guide.
 - **Full Documentation**: https://docs.redpill.ai
 - **API Reference**: https://docs.redpill.ai/api-reference
 - **Verification Guide**: https://docs.redpill.ai/confidential-ai/attestation
-
-## 🔧 Configuration
-
-### Environment Variables
-
-```bash
-# Provider API Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=...
-
-# Optional - Database
-POSTGRES_URL=postgresql://...
-REDIS_URL=redis://...
-
-# Optional - TEE Verification
-ENABLE_ATTESTATION=true
-ENABLE_SIGNATURES=true
-```
-
 ## 🧪 Testing
 
 ```bash
-# Run all tests
-npm test
-
-# Run gateway tests
 npm run test:gateway
 ```
 
@@ -161,7 +137,7 @@ npm run test:gateway
 
 ```bash
 docker build -t redpill-gateway .
-docker run -p 8787:8787 -e OPENAI_API_KEY=$OPENAI_API_KEY redpill-gateway
+docker run -p 8787:8787 redpill-gateway
 ```
 
 ### Cloudflare Workers
@@ -191,7 +167,6 @@ Based on [Portkey AI Gateway](https://github.com/Portkey-AI/gateway) with major 
 - **Website**: https://redpill.ai
 - **Documentation**: https://docs.redpill.ai
 - **Discord**: https://discord.gg/redpill
-- **Support**: support@redpill.ai
 
 ---
 
