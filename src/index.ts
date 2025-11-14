@@ -24,12 +24,13 @@ import { proxyHandler } from './handlers/proxyHandler';
 import { chatCompletionsHandler } from './handlers/chatCompletionsHandler';
 import { completionsHandler } from './handlers/completionsHandler';
 import { embeddingsHandler } from './handlers/embeddingsHandler';
-import { logger } from './middlewares/log';
+// import { logger } from './middlewares/log';
 import { imageGenerationsHandler } from './handlers/imageGenerationsHandler';
 import { createSpeechHandler } from './handlers/createSpeechHandler';
 import { createTranscriptionHandler } from './handlers/createTranscriptionHandler';
 import { createTranslationHandler } from './handlers/createTranslationHandler';
 import { modelsHandler } from './handlers/modelsHandler';
+import { embeddingModelsHandler } from './handlers/embeddingModelsHandler';
 import { realTimeHandler } from './handlers/realtimeHandler';
 import filesHandler from './handlers/filesHandler';
 import batchesHandler from './handlers/batchesHandler';
@@ -148,7 +149,7 @@ app.post('/v1/completions', virtualKeyValidator, completionsHandler);
  * POST route for '/v1/embeddings'.
  * Handles requests by passing them to the embeddingsHandler.
  */
-app.post('/v1/embeddings', requestValidator, embeddingsHandler);
+app.post('/v1/embeddings', virtualKeyValidator, embeddingsHandler);
 
 /**
  * POST route for '/v1/images/generations'.
@@ -263,6 +264,7 @@ app.post('/v1/prompts/*', requestValidator, (c) => {
 
 app.get('/v1/models', modelsHandler);
 app.get('/v1/models/:provider', modelsHandler);
+app.get('/v1/embeddings/models', embeddingModelsHandler);
 
 // WebSocket route
 if (runtime === 'workerd') {

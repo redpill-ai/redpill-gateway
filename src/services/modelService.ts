@@ -42,6 +42,11 @@ const ModelSchema = z.object({
     .default({}),
 });
 
+type TransformOptions = {
+  includeEmbeddings?: boolean;
+  onlyEmbeddings?: boolean;
+};
+
 export class ModelService {
   async getAllModels(): Promise<z.infer<typeof ModelSchema>[]> {
     const cacheKey = buildCacheKey('models', 'all');
@@ -49,7 +54,9 @@ export class ModelService {
     if (cached) return cached;
 
     const models = await getModels();
-    const transformedModels = await this.transformModels(models);
+    const transformedModels = await this.transformModels(models, {
+      includeEmbeddings: false,
+    });
     await setCache(cacheKey, transformedModels, 7200);
     return transformedModels;
   }
@@ -62,7 +69,37 @@ export class ModelService {
     if (cached) return cached;
 
     const models = await getModels(provider);
-    const transformedModels = await this.transformModels(models);
+    const transformedModels = await this.transformModels(models, {
+      includeEmbeddings: false,
+    });
+    await setCache(cacheKey, transformedModels, 7200);
+    return transformedModels;
+  }
+
+  async getAllEmbeddingModels(): Promise<z.infer<typeof ModelSchema>[]> {
+    const cacheKey = buildCacheKey('embedding-models', 'all');
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const models = await getModels();
+    const transformedModels = await this.transformModels(models, {
+      onlyEmbeddings: true,
+    });
+    await setCache(cacheKey, transformedModels, 7200);
+    return transformedModels;
+  }
+
+  async getEmbeddingModelsByProvider(
+    provider: string
+  ): Promise<z.infer<typeof ModelSchema>[]> {
+    const cacheKey = buildCacheKey('embedding-models', provider);
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const models = await getModels(provider);
+    const transformedModels = await this.transformModels(models, {
+      onlyEmbeddings: true,
+    });
     await setCache(cacheKey, transformedModels, 7200);
     return transformedModels;
   }
@@ -73,8 +110,10 @@ export class ModelService {
   }
 
   private async transformModels(
-    models: Model[]
+    models: Model[],
+    options: TransformOptions = {}
   ): Promise<z.infer<typeof ModelSchema>[]> {
+    const { includeEmbeddings = false, onlyEmbeddings = false } = options;
     const results = [];
 
     // Get all aliases in one query to avoid N+1
@@ -97,6 +136,16 @@ export class ModelService {
       const deployment = await getModelDeployment(model.model_id);
       const specs = model.specs || {};
       const config = deployment?.config || {};
+
+      const isEmbeddingsModel = this.isEmbeddingsOnlyModel(specs);
+
+      if (!onlyEmbeddings && !includeEmbeddings && isEmbeddingsModel) {
+        continue;
+      }
+
+      if (onlyEmbeddings && !isEmbeddingsModel) {
+        continue;
+      }
 
       const baseModelData = {
         name: model.name,
@@ -140,6 +189,23 @@ export class ModelService {
     }
 
     return results;
+  }
+
+  private isEmbeddingsOnlyModel(specs: Record<string, unknown>): boolean {
+    const rawModalities = (specs as Record<string, unknown>)[
+      'output_modalities'
+    ];
+    if (!Array.isArray(rawModalities)) {
+      return false;
+    }
+    if (rawModalities.length !== 1) {
+      return false;
+    }
+    const first = rawModalities[0];
+    if (typeof first !== 'string') {
+      return false;
+    }
+    return first.toLowerCase() === 'embeddings';
   }
 
   async getModelDeploymentForModel(
@@ -194,6 +260,7 @@ export class ModelService {
     try {
       await clearCacheByPattern(buildCacheKey('models', '*'));
       await clearCacheByPattern(buildCacheKey('model-deployment', '*'));
+      await clearCacheByPattern(buildCacheKey('embedding-models', '*'));
     } catch (error) {
       console.error('Failed to clear model cache:', error);
     }
