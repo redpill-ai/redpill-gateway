@@ -11,6 +11,8 @@ const PhalaApiConfig: ProviderAPIConfig = {
         return '/completions';
       case 'chatComplete':
         return '/chat/completions';
+      case 'embed':
+        return '/embeddings';
       default:
         return '';
     }
