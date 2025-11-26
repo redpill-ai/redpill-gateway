@@ -267,9 +267,9 @@ app.get('/v1/models/:provider', modelsHandler);
 app.get('/v1/embeddings/models', embeddingModelsHandler);
 
 // WebSocket route
-if (runtime === 'workerd') {
-  app.get('/v1/realtime', realTimeHandler);
-}
+// if (runtime === 'workerd') {
+//   app.get('/v1/realtime', realTimeHandler);
+// }
 
 // attestation
 app.get('/v1/attestation/report', virtualKeyValidator, proxyHandler);
