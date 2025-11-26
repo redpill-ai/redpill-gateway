@@ -48,7 +48,7 @@ function extractUsageFromStreamChunk(chunkText: string): Usage | null {
   }
 }
 
-function processSpendData(spendData: RequestSpendData): void {
+async function processSpendData(spendData: RequestSpendData): Promise<void> {
   const { virtualKeyContext, usage } = spendData;
 
   if (!virtualKeyContext?.virtualKeyWithUser) {
@@ -88,7 +88,19 @@ function processSpendData(spendData: RequestSpendData): void {
     },
   };
 
-  SpendQueue.getInstance().enqueueSpendData(queueData);
+  try {
+    await SpendQueue.getInstance().enqueueSpendData(queueData);
+  } catch (error: unknown) {
+    const isAbort =
+      error instanceof Error &&
+      (error.name === 'AbortError' || error.message === 'aborted');
+    // If the request was already aborted/shutdown, avoid crashing the process.
+    if (isAbort) {
+      console.warn('[SPEND_LOG] enqueue aborted, skipping.');
+      return;
+    }
+    console.error('[SPEND_LOG] Failed to enqueue spend data:', error);
+  }
 }
 
 export const spendLogger = () => {
@@ -181,7 +193,15 @@ export const spendLogger = () => {
           });
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const isAbort =
+        error instanceof Error &&
+        (error.name === 'AbortError' || error.message === 'aborted');
+      // Swallow client/stream aborts to avoid unhandled rejections on shutdown.
+      if (isAbort) {
+        console.warn('Spend log extraction aborted, skipping.');
+        return;
+      }
       console.error('Error extracting spend log information:', error);
     }
   };
