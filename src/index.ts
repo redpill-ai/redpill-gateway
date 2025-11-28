@@ -36,6 +36,7 @@ import filesHandler from './handlers/filesHandler';
 import batchesHandler from './handlers/batchesHandler';
 import finetuneHandler from './handlers/finetuneHandler';
 import { messagesHandler } from './handlers/messagesHandler';
+import { attestationHandler } from './handlers/attestationHandler';
 
 // Config
 import conf from '../conf.json';
@@ -272,8 +273,8 @@ app.get('/v1/embeddings/models', embeddingModelsHandler);
 // }
 
 // attestation
-app.get('/v1/attestation/report', virtualKeyValidator, proxyHandler);
-app.get('/v1/signature/*', virtualKeyValidator, proxyHandler);
+app.get('/v1/attestation/report', virtualKeyValidator, attestationHandler);
+app.get('/v1/signature/*', virtualKeyValidator, attestationHandler);
 
 /**
  * @deprecated
