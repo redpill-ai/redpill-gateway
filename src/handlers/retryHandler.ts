@@ -1,17 +1,25 @@
 import retry from 'async-retry';
 import { MAX_RETRY_LIMIT_MS, POSSIBLE_RETRY_STATUS_HEADERS } from '../globals';
+import { env } from '../constants';
 
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeout: number,
+  timeout: number | null,
   requestHandler?: () => Promise<Response>
 ) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const resolvedTimeout =
+    timeout && Number.isFinite(timeout) && timeout > 0
+      ? timeout
+      : env.GATEWAY_REQUEST_TIMEOUT;
+  const timeoutSignal = AbortSignal.timeout(resolvedTimeout);
+  const combinedSignal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
   const timeoutRequestOptions = {
     ...options,
-    signal: controller.signal,
+    ...(combinedSignal && { signal: combinedSignal }),
   };
 
   let response;
@@ -23,11 +31,11 @@ async function fetchWithTimeout(
       response = await fetch(url, timeoutRequestOptions);
     }
   } catch (err: any) {
-    if (err.name === 'AbortError') {
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
       response = new Response(
         JSON.stringify({
           error: {
-            message: `Request exceeded the timeout sent in the request: ${timeout}ms`,
+            message: `Request exceeded the timeout: ${resolvedTimeout}ms`,
             type: 'timeout_error',
             param: null,
             code: null,
@@ -43,9 +51,6 @@ async function fetchWithTimeout(
     } else {
       throw err;
     }
-  } finally {
-    clearTimeout(timeoutId);
-    controller.abort();
   }
 
   return response;
@@ -89,19 +94,12 @@ export const retryRequest = async (
     await retry(
       async (bail: any, attempt: number, rateLimiter: any) => {
         try {
-          let response: Response;
-          if (timeout) {
-            response = await fetchWithTimeout(
-              url,
-              options,
-              timeout,
-              requestHandler
-            );
-          } else if (requestHandler) {
-            response = await requestHandler();
-          } else {
-            response = await fetch(url, options);
-          }
+          const response = await fetchWithTimeout(
+            url,
+            options,
+            timeout,
+            requestHandler
+          );
           if (statusCodesToRetry.includes(response.status)) {
             const errorObj: any = new Error(await response.text());
             errorObj.status = response.status;
