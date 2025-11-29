@@ -132,18 +132,16 @@ export const spendLogger = () => {
             // Pass through the chunk unchanged
             controller.enqueue(chunk);
 
-            // Only process if we haven't found usage yet
-            if (!streamUsage) {
-              // Try to extract usage from this chunk
-              const chunkText = textDecoder.decode(chunk);
-              const lines = chunkText.split('\n');
+            // Try to extract usage from this chunk
+            // Always update to the latest usage (not just the first one)
+            // because providers may emit usage on every chunk, with only the final one being accurate
+            const chunkText = textDecoder.decode(chunk);
+            const lines = chunkText.split('\n');
 
-              for (const line of lines) {
-                const usage = extractUsageFromStreamChunk(line);
-                if (usage) {
-                  streamUsage = usage;
-                  break; // Stop processing once usage is found
-                }
+            for (const line of lines) {
+              const usage = extractUsageFromStreamChunk(line);
+              if (usage) {
+                streamUsage = usage;
               }
             }
           },
