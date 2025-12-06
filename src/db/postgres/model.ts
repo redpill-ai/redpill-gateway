@@ -77,24 +77,31 @@ export async function getAllModelAliases(
   return results.map((row) => ModelAliasSchema.parse(row));
 }
 
-export async function getModelDeployment(
+export async function getModelDeployments(
   modelNameOrAlias: string
-): Promise<ModelDeployment | null> {
+): Promise<ModelDeployment[]> {
   const deployments = await queryPostgres<unknown>(
-    `SELECT md.* FROM model_deployments md
+    `SELECT DISTINCT md.* FROM model_deployments md
      JOIN models m ON md.model_id = m.id
      LEFT JOIN model_aliases ma ON m.id = ma.model_id
      WHERE (m.model_id = $1 OR ma.alias = $1)
        AND md.active = true
        AND m.active = true
        AND (ma.active = true OR ma.active IS NULL)
-     LIMIT 1`,
+     ORDER BY md.id ASC`,
     [modelNameOrAlias]
   );
 
+  return deployments.map((row) => ModelDeploymentSchema.parse(row));
+}
+
+export async function getModelDeployment(
+  modelNameOrAlias: string
+): Promise<ModelDeployment | null> {
+  const deployments = await getModelDeployments(modelNameOrAlias);
   if (deployments.length === 0) {
     return null;
   }
 
-  return ModelDeploymentSchema.parse(deployments[0]);
+  return deployments[0];
 }

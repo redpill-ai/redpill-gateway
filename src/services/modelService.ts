@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   getModels,
   getModelDeployment,
+  getModelDeployments,
   getAllModelAliases,
   type Model,
   type ModelDeployment,
@@ -211,31 +212,43 @@ export class ModelService {
   async getModelDeploymentForModel(
     modelNameOrAlias: string
   ): Promise<ModelDeployment | null> {
+    let deployments: ModelDeployment[] | null = null;
+
     // Check cache first
     const cacheKey = buildCacheKey('model-deployment', modelNameOrAlias);
     const cached = await getCache(cacheKey);
-    if (cached) {
-      return cached;
+
+    if (Array.isArray(cached)) {
+      deployments = cached;
     }
 
     // Cache miss - query database
-    const deployment = await getModelDeployment(modelNameOrAlias);
+    if (!deployments) {
+      const deploymentsFromDb = await getModelDeployments(modelNameOrAlias);
 
-    if (!deployment) {
-      // Cache null result to prevent cache penetration
-      await setCache(cacheKey, null, 300); // 5 minutes TTL
+      if (!deploymentsFromDb.length) {
+        // Cache null result to prevent cache penetration
+        await setCache(cacheKey, [], 300); // 5 minutes TTL
+        return null;
+      }
+
+      // Decrypt sensitive config fields before caching
+      deployments = deploymentsFromDb.map((deployment) => ({
+        ...deployment,
+        config: this.decryptConfigFields(deployment.config),
+      }));
+
+      // Cache the decrypted result
+      await setCache(cacheKey, deployments, 86400); // 24 hours TTL
+    }
+
+    if (!deployments.length) {
       return null;
     }
 
-    // Decrypt sensitive config fields before caching
-    const deploymentWithDecryptedConfig = {
-      ...deployment,
-      config: this.decryptConfigFields(deployment.config),
-    };
+    const deploymentIndex = Math.floor(Math.random() * deployments.length);
 
-    // Cache the decrypted result
-    await setCache(cacheKey, deploymentWithDecryptedConfig, 86400); // 24 hours TTL
-    return deploymentWithDecryptedConfig;
+    return deployments[deploymentIndex];
   }
 
   private decryptConfigFields(config: any): any {
