@@ -55,7 +55,9 @@ const createVirtualKeyContext = async (
   virtualKeyWithUser: VirtualKeyWithUser | null = null
 ): Promise<VirtualKeyContext> => {
   const modelService = new ModelService();
-  const deployment = await modelService.getModelDeploymentForModel(modelName);
+  const deployment = await modelService.getModelDeploymentForModel(modelName, {
+    virtualKeyWithUser,
+  });
 
   if (!deployment) {
     throw new VirtualKeyValidationError(

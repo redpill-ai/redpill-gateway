@@ -14,6 +14,7 @@ import {
   buildCacheKey,
 } from '../db/redis';
 import { decryptConfig } from '../utils/encryption';
+import { type VirtualKeyWithUser } from '../db/postgres/virtualKey';
 
 const ModelSchema = z.object({
   id: z.string(),
@@ -210,7 +211,8 @@ export class ModelService {
   }
 
   async getModelDeploymentForModel(
-    modelNameOrAlias: string
+    modelNameOrAlias: string,
+    options?: { virtualKeyWithUser?: VirtualKeyWithUser | null }
   ): Promise<ModelDeployment | null> {
     let deployments: ModelDeployment[] | null = null;
 
@@ -246,7 +248,12 @@ export class ModelService {
       return null;
     }
 
-    const deploymentIndex = Math.floor(Math.random() * deployments.length);
+    const isEnterpriseUser =
+      options?.virtualKeyWithUser?.user.user_tier === 'ENTERPRISE';
+
+    const deploymentIndex = isEnterpriseUser
+      ? Math.floor(Math.random() * deployments.length)
+      : 0;
 
     return deployments[deploymentIndex];
   }
