@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { serve } from '@hono/node-server';
+import { Agent, setGlobalDispatcher } from 'undici';
 
 import app from './index';
 import { createNodeWebSocket } from '@hono/node-ws';
@@ -42,6 +43,9 @@ console.log('   ' + '\x1b[1;4;32m%s\x1b[0m', `${url}`);
 // Start the spend queue processor
 SpendQueue.getInstance().startSpendProcessor();
 
+const globalDispatcher = new Agent();
+setGlobalDispatcher(globalDispatcher);
+
 // Ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
 
@@ -50,6 +54,7 @@ async function gracefulShutdown() {
   try {
     SpendQueue.getInstance().stopSpendProcessor();
     await Promise.all([closePostgresPool(), closeRedisClient()]);
+    await globalDispatcher.close();
   } catch (error) {
     console.error(error);
   }
