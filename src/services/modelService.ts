@@ -4,6 +4,7 @@ import {
   getModelDeployment,
   getModelDeployments,
   getAllModelAliases,
+  getModelProvidersByModelIds,
   type Model,
   type ModelDeployment,
 } from '../db/postgres/model';
@@ -36,6 +37,7 @@ const ModelSchema = z.object({
     .default({}),
   supported_sampling_parameters: z.array(z.string()).default(['temperature']),
   supported_features: z.array(z.string()).default([]),
+  providers: z.array(z.string()).default([]),
   description: z.string().optional(),
   metadata: z
     .object({
@@ -121,6 +123,18 @@ export class ModelService {
     // Get all aliases in one query to avoid N+1
     const modelIds = models.map((model) => model.id);
     const allAliases = await getAllModelAliases(modelIds);
+    const allProviders = await getModelProvidersByModelIds(modelIds);
+
+    const providersByModelId = allProviders.reduce(
+      (acc, provider) => {
+        if (!acc[provider.model_id]) {
+          acc[provider.model_id] = new Set<string>();
+        }
+        acc[provider.model_id].add(provider.provider_name);
+        return acc;
+      },
+      {} as Record<number, Set<string>>
+    );
 
     // Group aliases by model_id for quick lookup
     const aliasesByModelId = allAliases.reduce(
@@ -162,6 +176,7 @@ export class ModelService {
         },
         supported_sampling_parameters: specs.supported_sampling_parameters,
         supported_features: specs.supported_features,
+        providers: Array.from(providersByModelId[model.id] || []).sort(),
         description: model.description,
         ...(config.appid
           ? {

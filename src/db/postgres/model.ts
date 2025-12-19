@@ -53,6 +53,25 @@ export async function getModels(provider?: string): Promise<Model[]> {
   return results.map((row) => ModelSchema.parse(row));
 }
 
+export async function getModelProvidersByModelIds(
+  modelIds: number[]
+): Promise<{ model_id: number; provider_name: string }[]> {
+  if (modelIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = modelIds.map((_, index) => `$${index + 1}`).join(',');
+  const query = `
+    SELECT DISTINCT model_id, provider_name
+    FROM model_deployments
+    WHERE active = true
+      AND model_id IN (${placeholders})
+  `;
+
+  const results = await queryPostgres<unknown>(query, modelIds);
+  return results as { model_id: number; provider_name: string }[];
+}
+
 export async function getModelAliases(modelId: number): Promise<ModelAlias[]> {
   const results = await queryPostgres<unknown>(
     'SELECT * FROM model_aliases WHERE model_id = $1 AND active = true',
