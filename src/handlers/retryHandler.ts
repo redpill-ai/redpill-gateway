@@ -186,7 +186,7 @@ export const retryRequest = async (
       error.cause?.name === 'ConnectTimeoutError'
     ) {
       console.error(
-        'retryRequest ConnectTimeoutError error:',
+        `retryRequest ${url} ConnectTimeoutError error:`,
         error.cause,
         error.message
       );
@@ -196,7 +196,7 @@ export const retryRequest = async (
         status: 503,
       });
     } else if (!error.status || error instanceof TypeError) {
-      console.error('retryRequest error:', error.cause, error.message);
+      console.error(`retryRequest ${url} error:`, error.cause, error.message);
       // The retry handler will always attach status code to the error object
       lastResponse = new Response(
         `Message: ${error.message} Cause: ${error.cause ?? 'NA'} Name: ${error.name}`,
