@@ -80,6 +80,8 @@ const OpenAIAPIConfig: ProviderAPIConfig = {
         return basePath;
       case 'listResponseInputItems':
         return basePath;
+      case 'messages':
+        return '/chat/completions';
       default:
         return '';
     }

@@ -46,12 +46,18 @@ import {
   OpenAIListInputItemsResponseTransformer,
 } from '../open-ai-base';
 import { OPEN_AI } from '../../globals';
+import {
+  OpenAIToAnthropicMessagesConfig,
+  OpenAIToAnthropicMessagesResponseTransform,
+  OpenAIToAnthropicMessagesStreamTransform,
+} from '../openai-to-anthropic';
 
 const OpenAIConfig: ProviderConfigs = {
   complete: OpenAICompleteConfig,
   embed: OpenAIEmbedConfig,
   api: OpenAIAPIConfig,
   chatComplete: OpenAIChatCompleteConfig,
+  messages: OpenAIToAnthropicMessagesConfig,
   imageGenerate: OpenAIImageGenerateConfig,
   createSpeech: OpenAICreateSpeechConfig,
   createTranscription: {},
@@ -96,6 +102,8 @@ const OpenAIConfig: ProviderConfigs = {
     getModelResponse: OpenAIGetModelResponseTransformer(OPEN_AI),
     deleteModelResponse: OpenAIDeleteModelResponseTransformer(OPEN_AI),
     listModelsResponse: OpenAIListInputItemsResponseTransformer(OPEN_AI),
+    messages: OpenAIToAnthropicMessagesResponseTransform,
+    'stream-messages': OpenAIToAnthropicMessagesStreamTransform,
   },
 };
 

@@ -11,6 +11,8 @@ const TinfoilApiConfig: ProviderAPIConfig = {
         return '/completions';
       case 'chatComplete':
         return '/chat/completions';
+      case 'messages':
+        return '/chat/completions';
       default:
         return '';
     }
