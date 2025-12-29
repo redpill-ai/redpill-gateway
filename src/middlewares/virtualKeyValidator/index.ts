@@ -7,6 +7,14 @@ import { ModelService } from '../../services/modelService';
 import { env } from '../../constants';
 import { hash } from '../../utils/hash';
 
+/**
+ * Determines how spending is tracked for a request:
+ * - 'regular': Normal key - update user budget + credits, update key budget
+ * - 'subscription': Subscription key within quota - only update key budget_used
+ * - 'subscription_overflow': Subscription key over quota - same as regular (update user budget + credits, update key budget)
+ */
+export type SpendMode = 'regular' | 'subscription' | 'subscription_overflow';
+
 export interface VirtualKeyContext {
   virtualKeyWithUser: VirtualKeyWithUser | null;
   providerConfig: {
@@ -22,6 +30,7 @@ export interface VirtualKeyContext {
     outputCostPerToken: number;
   };
   requestHash?: string;
+  spendMode: SpendMode;
 }
 
 class VirtualKeyValidationError extends Error {
@@ -37,8 +46,10 @@ class VirtualKeyValidationError extends Error {
 const createErrorResponse = (status: number, message: string) => {
   return new Response(
     JSON.stringify({
-      status: 'failure',
-      message,
+      error: {
+        message,
+        type: 'error',
+      },
     }),
     {
       status,
@@ -52,7 +63,8 @@ const createErrorResponse = (status: number, message: string) => {
 const createVirtualKeyContext = async (
   c: Context,
   modelName: string,
-  virtualKeyWithUser: VirtualKeyWithUser | null = null
+  virtualKeyWithUser: VirtualKeyWithUser | null = null,
+  spendMode: SpendMode = 'regular'
 ): Promise<VirtualKeyContext> => {
   const modelService = new ModelService();
   const deployment = await modelService.getModelDeploymentForModel(modelName, {
@@ -88,6 +100,7 @@ const createVirtualKeyContext = async (
       outputCostPerToken: deployment.config.output_cost_per_token || 0,
     },
     requestHash,
+    spendMode,
   };
 };
 
@@ -111,6 +124,58 @@ const handlePublicEndpoint = async (
   c.set('virtualKeyContext', virtualKeyContext);
 };
 
+/**
+ * Check if a virtual key is a subscription key (for redpill-chatgpt)
+ */
+const isSubscriptionKey = (virtualKeyWithUser: VirtualKeyWithUser): boolean => {
+  const metadata = virtualKeyWithUser.metadata as { type?: string } | null;
+  return metadata?.type === 'subscription';
+};
+
+/**
+ * Handle subscription key validation with overflow to credits
+ */
+const handleSubscriptionKey = async (
+  c: Context,
+  modelName: string,
+  virtualKeyWithUser: VirtualKeyWithUser
+): Promise<void> => {
+  const budgetLimit = virtualKeyWithUser.budget_limit;
+  const budgetUsed = virtualKeyWithUser.budget_used;
+  const userCredits = virtualKeyWithUser.user.credits;
+
+  // Check if subscription quota is exceeded
+  const isQuotaExceeded =
+    budgetLimit !== undefined && budgetUsed.gte(budgetLimit);
+
+  if (isQuotaExceeded) {
+    // Subscription quota exceeded, check if user has credits
+    if (userCredits.lte(0)) {
+      throw new VirtualKeyValidationError(
+        'Subscription quota exceeded. Please add credits to continue.',
+        402
+      );
+    }
+    // Has credits, proceed in overflow mode (deduct credits only)
+    const virtualKeyContext = await createVirtualKeyContext(
+      c,
+      modelName,
+      virtualKeyWithUser,
+      'subscription_overflow'
+    );
+    c.set('virtualKeyContext', virtualKeyContext);
+  } else {
+    // Within subscription quota (update key budget_used only)
+    const virtualKeyContext = await createVirtualKeyContext(
+      c,
+      modelName,
+      virtualKeyWithUser,
+      'subscription'
+    );
+    c.set('virtualKeyContext', virtualKeyContext);
+  }
+};
+
 const handleAuthenticatedUser = async (
   c: Context,
   apiKey: string,
@@ -119,8 +184,15 @@ const handleAuthenticatedUser = async (
   // Find virtual key with user data
   const virtualKeyWithUser = await findVirtualKeyWithUser(apiKey);
   if (!virtualKeyWithUser) {
-    throw new VirtualKeyValidationError('Invalid API key', 401);
+    throw new VirtualKeyValidationError('Invalid API key provided', 401);
   }
+
+  // Special handling for subscription keys (redpill-chatgpt)
+  if (isSubscriptionKey(virtualKeyWithUser)) {
+    return handleSubscriptionKey(c, modelName, virtualKeyWithUser);
+  }
+
+  // Regular key handling below
 
   // Check user budget
   if (
@@ -129,7 +201,10 @@ const handleAuthenticatedUser = async (
       virtualKeyWithUser.user.budget_limit
     )
   ) {
-    throw new VirtualKeyValidationError('Account quota exceeded', 401);
+    throw new VirtualKeyValidationError(
+      'Account quota exceeded. Please add credits to continue.',
+      402
+    );
   }
 
   // Check virtual key budget
@@ -137,13 +212,17 @@ const handleAuthenticatedUser = async (
     virtualKeyWithUser.budget_limit !== undefined &&
     virtualKeyWithUser.budget_used.gte(virtualKeyWithUser.budget_limit)
   ) {
-    throw new VirtualKeyValidationError('API key quota exceeded', 401);
+    throw new VirtualKeyValidationError(
+      'API key quota exceeded. Please add credits or increase the key limit.',
+      402
+    );
   }
 
   const virtualKeyContext = await createVirtualKeyContext(
     c,
     modelName,
-    virtualKeyWithUser
+    virtualKeyWithUser,
+    'regular'
   );
   c.set('virtualKeyContext', virtualKeyContext);
 };
@@ -155,7 +234,7 @@ const handleAnonymousUser = async (
   // Check if model is allowed for free usage
   if (!isModelAllowed(modelName)) {
     throw new VirtualKeyValidationError(
-      'Add credits to access this model',
+      'This model requires an API key. Please add credits to access.',
       403
     );
   }

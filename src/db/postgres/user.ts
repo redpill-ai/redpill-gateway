@@ -11,6 +11,10 @@ export const UserSchema = z.object({
     .nullable()
     .transform((val) => (val ? new Decimal(val) : undefined)),
   budget_used: z.string().transform((val) => new Decimal(val)),
+  credits: z
+    .string()
+    .nullable()
+    .transform((val) => (val ? new Decimal(val) : new Decimal(0))),
   rate_limit_rpm: z.number().nullable(),
   rate_limit_tpm: z.number().nullable(),
   created_at: z.coerce.date(),

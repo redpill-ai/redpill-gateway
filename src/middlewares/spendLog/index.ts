@@ -64,6 +64,7 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     pricing,
     originalModel,
     modelDeploymentId,
+    spendMode,
   } = virtualKeyContext;
 
   const queueData = {
@@ -86,6 +87,7 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
       inputCostPerToken: pricing?.inputCostPerToken || 0,
       outputCostPerToken: pricing?.outputCostPerToken || 0,
     },
+    spendMode,
   };
 
   try {

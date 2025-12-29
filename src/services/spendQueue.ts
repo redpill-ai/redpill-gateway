@@ -2,6 +2,7 @@ import { getRedisClient, buildCacheKey } from '../db/redis';
 import { updateUserBudgetsBatch } from '../db/postgres/user';
 import { updateVirtualKeyBudgetsBatch } from '../db/postgres/virtualKey';
 import { insertSpendLogs, SpendLogRow } from '../db/clickhouse';
+import { SpendMode } from '../middlewares/virtualKeyValidator';
 import Decimal from 'decimal.js';
 import msgpack from 'msgpack5';
 
@@ -25,6 +26,13 @@ interface SpendData {
     inputCostPerToken: number;
     outputCostPerToken: number;
   };
+  /**
+   * Determines how spending is tracked for a request:
+   * - 'regular': Normal key - update user budget + credits, update key budget
+   * - 'subscription': Subscription key within quota - only update key budget_used
+   * - 'subscription_overflow': Subscription key over quota - same as regular (update user budget + credits, update key budget)
+   */
+  spendMode: SpendMode;
 }
 
 export class SpendQueue {
@@ -124,9 +132,10 @@ export class SpendQueue {
         return;
       }
 
-      // Calculate costs and group by user/key
+      // Aggregate spends by user and key
       const userSpends = new Map<number, Decimal>();
       const keySpends = new Map<number, Decimal>();
+
       const clickhouseLogs: SpendLogRow[] = [];
 
       for (const spendData of spendDataList) {
@@ -145,16 +154,21 @@ export class SpendQueue {
 
           if (cost.isZero()) continue;
 
-          // Aggregate costs
-          const currentUserSpend =
-            userSpends.get(spendData.userId) || new Decimal(0);
-          userSpends.set(spendData.userId, currentUserSpend.add(cost));
-
+          // Aggregate key spend (always track key usage)
           const currentKeySpend =
             keySpends.get(spendData.virtualKeyId) || new Decimal(0);
           keySpends.set(spendData.virtualKeyId, currentKeySpend.add(cost));
 
-          // Prepare ClickHouse log entry
+          // Aggregate user spend based on mode
+          // - regular/subscription_overflow: update user budget_used + deduct credits
+          // - subscription: no user spend (using subscription quota)
+          if (spendData.spendMode !== 'subscription') {
+            const currentUserSpend =
+              userSpends.get(spendData.userId) || new Decimal(0);
+            userSpends.set(spendData.userId, currentUserSpend.add(cost));
+          }
+
+          // Prepare ClickHouse log entry (always log regardless of key type)
           clickhouseLogs.push({
             timestamp: new Date(spendData.time)
               .toISOString()
