@@ -18,6 +18,7 @@ import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
 import { spendLogger } from './middlewares/spendLog';
 import { virtualKeyValidator } from './middlewares/virtualKeyValidator';
+import { rateLimiter } from './middlewares/rateLimiter';
 
 // Handlers
 import { proxyHandler } from './handlers/proxyHandler';
@@ -132,25 +133,30 @@ app.onError((err, c) => {
 /**
  * POST route for '/v1/messages' in anthropic format
  */
-app.post('/v1/messages', virtualKeyValidator, messagesHandler);
+app.post('/v1/messages', virtualKeyValidator, rateLimiter, messagesHandler);
 
 /**
  * POST route for '/v1/chat/completions'.
  * Handles requests by passing them to the chatCompletionsHandler.
  */
-app.post('/v1/chat/completions', virtualKeyValidator, chatCompletionsHandler);
+app.post(
+  '/v1/chat/completions',
+  virtualKeyValidator,
+  rateLimiter,
+  chatCompletionsHandler
+);
 
 /**
  * POST route for '/v1/completions'.
  * Handles requests by passing them to the completionsHandler.
  */
-app.post('/v1/completions', virtualKeyValidator, completionsHandler);
+app.post('/v1/completions', virtualKeyValidator, rateLimiter, completionsHandler);
 
 /**
  * POST route for '/v1/embeddings'.
  * Handles requests by passing them to the embeddingsHandler.
  */
-app.post('/v1/embeddings', virtualKeyValidator, embeddingsHandler);
+app.post('/v1/embeddings', virtualKeyValidator, rateLimiter, embeddingsHandler);
 
 /**
  * POST route for '/v1/images/generations'.
@@ -273,8 +279,13 @@ app.get('/v1/embeddings/models', embeddingModelsHandler);
 // }
 
 // attestation
-app.get('/v1/attestation/report', virtualKeyValidator, attestationHandler);
-app.get('/v1/signature/*', virtualKeyValidator, attestationHandler);
+app.get(
+  '/v1/attestation/report',
+  virtualKeyValidator,
+  rateLimiter,
+  attestationHandler
+);
+app.get('/v1/signature/*', virtualKeyValidator, rateLimiter, attestationHandler);
 
 /**
  * @deprecated
