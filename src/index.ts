@@ -150,7 +150,12 @@ app.post(
  * POST route for '/v1/completions'.
  * Handles requests by passing them to the completionsHandler.
  */
-app.post('/v1/completions', virtualKeyValidator, rateLimiter, completionsHandler);
+app.post(
+  '/v1/completions',
+  virtualKeyValidator,
+  rateLimiter,
+  completionsHandler
+);
 
 /**
  * POST route for '/v1/embeddings'.
@@ -285,7 +290,12 @@ app.get(
   rateLimiter,
   attestationHandler
 );
-app.get('/v1/signature/*', virtualKeyValidator, rateLimiter, attestationHandler);
+app.get(
+  '/v1/signature/*',
+  virtualKeyValidator,
+  rateLimiter,
+  attestationHandler
+);
 
 /**
  * @deprecated
