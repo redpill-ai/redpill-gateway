@@ -44,6 +44,19 @@ export async function attestationHandler(c: Context): Promise<Response> {
     }
   }
 
+  // Handle Chutes provider - attestation not yet supported
+  if (virtualKeyContext?.providerConfig?.provider === 'chutes') {
+    return new Response(
+      JSON.stringify({
+        all_attestations: [],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }
+    );
+  }
+
   // For other providers, use proxy handler
   if (virtualKeyContext?.deploymentName) {
     const url = new URL(c.req.url);

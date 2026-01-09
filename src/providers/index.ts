@@ -16,6 +16,7 @@ import PalmAIConfig from './palm';
 import PerplexityAIConfig from './perplexity-ai';
 import PhalaConfig from './phala';
 import TinfoilConfig from './tinfoil';
+import ChutesConfig from './chutes';
 import NearAIConfig from './near-ai';
 import TogetherAIConfig from './together-ai';
 import StabilityAIConfig from './stability-ai';
@@ -81,6 +82,7 @@ const Providers: { [key: string]: ProviderConfigs } = {
   'perplexity-ai': PerplexityAIConfig,
   phala: PhalaConfig,
   tinfoil: TinfoilConfig,
+  chutes: ChutesConfig,
   'near-ai': NearAIConfig,
   'mistral-ai': MistralAIConfig,
   deepinfra: DeepInfraConfig,
