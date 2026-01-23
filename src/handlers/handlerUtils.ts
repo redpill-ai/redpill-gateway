@@ -849,13 +849,9 @@ export function overrideProviderHeadersFromContext(
     ...(virtualKeyContext.requestHash && {
       'x-request-hash': virtualKeyContext.requestHash,
     }),
-    ...(virtualKeyContext.virtualKeyWithUser?.user.user_tier === 'ENTERPRISE'
-      ? {
-          'x-user-tier': 'basic',
-        }
-      : {
-          'x-user-tier': 'premium',
-        }),
+    'x-user-tier':
+      (virtualKeyContext.virtualKeyWithUser?.metadata as { tier?: string })
+        ?.tier ?? 'premium',
   };
 }
 
