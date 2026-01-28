@@ -32,12 +32,12 @@ import { createTranscriptionHandler } from './handlers/createTranscriptionHandle
 import { createTranslationHandler } from './handlers/createTranslationHandler';
 import { modelsHandler } from './handlers/modelsHandler';
 import { embeddingModelsHandler } from './handlers/embeddingModelsHandler';
-import { realTimeHandler } from './handlers/realtimeHandler';
 import filesHandler from './handlers/filesHandler';
 import batchesHandler from './handlers/batchesHandler';
 import finetuneHandler from './handlers/finetuneHandler';
 import { messagesHandler } from './handlers/messagesHandler';
 import { attestationHandler } from './handlers/attestationHandler';
+import { cacheRefreshHandler } from './handlers/adminHandler';
 
 // Config
 import conf from '../conf.json';
@@ -277,6 +277,9 @@ app.post('/v1/prompts/*', requestValidator, (c) => {
 app.get('/v1/models', modelsHandler);
 app.get('/v1/models/:provider', modelsHandler);
 app.get('/v1/embeddings/models', embeddingModelsHandler);
+
+// Admin routes
+app.post('/admin/cache/refresh', cacheRefreshHandler);
 
 // WebSocket route
 // if (runtime === 'workerd') {
