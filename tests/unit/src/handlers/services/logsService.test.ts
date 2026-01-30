@@ -277,11 +277,7 @@ describe('LogsService', () => {
 
   describe('addRequestLog', () => {
     it('should keep only the last log entry when cache is enabled', () => {
-      jest.replaceProperty(
-        require('../../../../../conf.json'),
-        'cache',
-        true
-      );
+      jest.replaceProperty(require('../../../../../conf.json'), 'cache', true);
 
       const newLog = { id: 'log2' };
       logsService.addRequestLog(newLog);
@@ -294,11 +290,7 @@ describe('LogsService', () => {
     });
 
     it('should not add log when cache is disabled', () => {
-      jest.replaceProperty(
-        require('../../../../../conf.json'),
-        'cache',
-        false
-      );
+      jest.replaceProperty(require('../../../../../conf.json'), 'cache', false);
 
       logsService.addRequestLog({ id: 'log1' });
 

@@ -224,9 +224,9 @@ describe('ResponseService', () => {
 
       const result = await responseService.create(options);
       expect(result.response.status).toBe(500);
-      expect(
-        result.response.headers.get(RESPONSE_HEADER_KEYS.TRACE_ID)
-      ).toBe('trace-123');
+      expect(result.response.headers.get(RESPONSE_HEADER_KEYS.TRACE_ID)).toBe(
+        'trace-123'
+      );
     });
 
     it('should not add cache status header when not provided', async () => {
