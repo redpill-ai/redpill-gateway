@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { proxyHandler } from './proxyHandler';
 import { fetchIntelQuote, TinfoilError } from '../services/tinfoilService';
+import { updateVirtualKeyContextForDeployment } from './handlerUtils';
 
 /**
  * Attestation handler for /v1/attestation/report and /v1/signature/*
@@ -9,6 +10,16 @@ import { fetchIntelQuote, TinfoilError } from '../services/tinfoilService';
  */
 export async function attestationHandler(c: Context): Promise<Response> {
   const virtualKeyContext = c.get('virtualKeyContext');
+
+  const signingAddress = c.req.query('signing_address');
+  if (signingAddress && virtualKeyContext?.allDeployments?.length) {
+    const matched = virtualKeyContext.allDeployments.find(
+      (d: any) => d.config?.signing_address === signingAddress
+    );
+    if (matched) {
+      updateVirtualKeyContextForDeployment(c, matched);
+    }
+  }
 
   // Handle Tinfoil provider separately
   if (virtualKeyContext?.providerConfig?.provider === 'tinfoil') {

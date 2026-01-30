@@ -1355,7 +1355,7 @@ function buildFailoverOrder(
   return primary ? [primary, ...rest] : rest;
 }
 
-function updateVirtualKeyContextForDeployment(
+export function updateVirtualKeyContextForDeployment(
   c: Context,
   deployment: ModelDeployment
 ): void {
