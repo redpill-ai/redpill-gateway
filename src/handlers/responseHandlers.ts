@@ -19,6 +19,125 @@ import { env } from 'hono/adapter';
 import { OpenAIModelResponseJSONToStreamGenerator } from '../providers/open-ai-base/createModelResponse';
 import { anthropicMessagesJsonToStreamGenerator } from '../providers/anthropic-base/utils/streamGenerator';
 
+function mapUpstreamStatus(status: number): number {
+  switch (status) {
+    case 400:
+    case 404:
+    case 422:
+      return status;
+    case 429:
+      return 429;
+    case 503:
+      return 503;
+    case 504:
+      return 504;
+    default:
+      return 502;
+  }
+}
+
+function getErrorMessage(upstreamStatus: number): string {
+  switch (upstreamStatus) {
+    case 401:
+    case 402:
+    case 403:
+      return 'The upstream provider is currently unavailable';
+    case 429:
+      return 'Rate limit exceeded. Please retry after some time.';
+    case 500:
+    case 502:
+      return 'The upstream provider returned an error';
+    case 503:
+      return 'The model is currently unavailable. Please try again later.';
+    case 504:
+      return 'The upstream provider timed out';
+    default:
+      return 'The upstream provider returned an error';
+  }
+}
+
+function getErrorType(upstreamStatus: number): string {
+  switch (upstreamStatus) {
+    case 429:
+      return 'rate_limit_error';
+    case 503:
+      return 'service_unavailable';
+    case 504:
+      return 'timeout_error';
+    default:
+      return 'upstream_error';
+  }
+}
+
+function isPassThroughClientError(status: number): boolean {
+  return (
+    status >= 400 && status < 500 && ![401, 402, 403, 429].includes(status)
+  );
+}
+
+async function tryParseJsonBody(
+  response: Response
+): Promise<Record<string, any> | null> {
+  try {
+    const cloned = response.clone();
+    return await cloned.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalizes non-2xx upstream provider responses into a consistent
+ * OpenAI-compatible error format, sanitizing provider-internal details.
+ */
+export async function normalizeErrorResponse(
+  response: Response
+): Promise<Response> {
+  if (response.ok || response.status === 246) {
+    return response;
+  }
+
+  // Skip gateway-generated errors (hooks, timeouts, etc.)
+  const isGatewayException =
+    response.headers.get('x-redpill-exception') === 'true';
+  if (
+    isGatewayException ||
+    response.status === 446 ||
+    response.status === 408
+  ) {
+    return response;
+  }
+
+  const upstreamStatus = response.status;
+
+  // For user-caused errors (400, 404, 422, etc.), preserve well-formed JSON bodies
+  if (isPassThroughClientError(upstreamStatus)) {
+    const body = await tryParseJsonBody(response);
+    if (body && body.error) {
+      return response;
+    }
+  }
+
+  const status = mapUpstreamStatus(upstreamStatus);
+  const message = getErrorMessage(upstreamStatus);
+  const errorType = getErrorType(upstreamStatus);
+
+  return new Response(
+    JSON.stringify({
+      error: {
+        message,
+        type: errorType,
+        code: status,
+        param: null,
+      },
+    }),
+    {
+      status,
+      headers: { 'content-type': 'application/json' },
+    }
+  );
+}
+
 /**
  * Handles various types of responses based on the specified parameters
  * and returns a mapped response

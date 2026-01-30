@@ -21,7 +21,11 @@ import { Options, Params, StrategyModes, Targets } from '../types/requestBody';
 import { convertKeysToCamelCase } from '../utils';
 import { retryRequest } from './retryHandler';
 import { env } from 'hono/adapter';
-import { afterRequestHookHandler, responseHandler } from './responseHandlers';
+import {
+  afterRequestHookHandler,
+  normalizeErrorResponse,
+  responseHandler,
+} from './responseHandlers';
 import { HookSpan } from '../middlewares/hooks';
 import { ConditionalRouter } from '../services/conditionalRouter';
 import { RouterError } from '../errors/RouterError';
@@ -1397,14 +1401,16 @@ export async function tryWithDeploymentFailover(
       request = overrideModelFromContext(request as Record<string, any>, c);
     }
     const config = constructConfigFromRequestHeaders(requestHeaders);
-    return tryTargetsRecursively(
-      c,
-      config,
-      request as Params | FormData | ReadableStream,
-      requestHeaders,
-      fn,
-      method,
-      'config'
+    return normalizeErrorResponse(
+      await tryTargetsRecursively(
+        c,
+        config,
+        request as Params | FormData | ReadableStream,
+        requestHeaders,
+        fn,
+        method,
+        'config'
+      )
     );
   }
 
@@ -1442,7 +1448,7 @@ export async function tryWithDeploymentFailover(
     );
 
     if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
-      return response;
+      return normalizeErrorResponse(response);
     }
 
     console.warn(
@@ -1453,5 +1459,5 @@ export async function tryWithDeploymentFailover(
     lastResponse = response;
   }
 
-  return lastResponse!;
+  return normalizeErrorResponse(lastResponse!);
 }
