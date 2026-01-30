@@ -27,6 +27,8 @@ import { ConditionalRouter } from '../services/conditionalRouter';
 import { RouterError } from '../errors/RouterError';
 import { GatewayError } from '../errors/GatewayError';
 import { HookType } from '../middlewares/hooks/types';
+import { type ModelDeployment } from '../db/postgres/model';
+import { type VirtualKeyContext } from '../middlewares/virtualKeyValidator';
 
 // Services
 import { CacheResponseObject, CacheService } from './services/cacheService';
@@ -1331,4 +1333,125 @@ export async function beforeRequestHookHandler(
   return {
     transformedBody: isTransformed ? span.getContext().request.json : null,
   };
+}
+
+const RETRIABLE_STATUS_CODES = [429, 500, 502, 503, 504];
+
+function buildFailoverOrder(
+  allDeployments: ModelDeployment[],
+  primaryId: number
+): ModelDeployment[] {
+  const primary = allDeployments.find((d) => d.id === primaryId);
+  const rest = allDeployments.filter((d) => d.id !== primaryId);
+  // Shuffle remaining to avoid thundering herd
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j], rest[i]];
+  }
+  return primary ? [primary, ...rest] : rest;
+}
+
+function updateVirtualKeyContextForDeployment(
+  c: Context,
+  deployment: ModelDeployment
+): void {
+  const ctx: VirtualKeyContext = c.get('virtualKeyContext');
+  ctx.providerConfig = {
+    provider: deployment.provider_name,
+    apiKey: deployment.config.api_key,
+    customHost: deployment.config.base_url,
+  };
+  ctx.deploymentName = deployment.deployment_name;
+  ctx.modelDeploymentId = deployment.id;
+  ctx.pricing = {
+    inputCostPerToken: deployment.config.input_cost_per_token || 0,
+    outputCostPerToken: deployment.config.output_cost_per_token || 0,
+  };
+}
+
+export interface DeploymentFailoverOptions {
+  overrideModel?: boolean;
+}
+
+export async function tryWithDeploymentFailover(
+  c: Context,
+  request:
+    | Params
+    | FormData
+    | ReadableStream
+    | ArrayBuffer
+    | Record<string, any>,
+  requestHeaders: Record<string, string>,
+  fn: endpointStrings,
+  method: string,
+  options?: DeploymentFailoverOptions
+): Promise<Response> {
+  const virtualKeyContext: VirtualKeyContext | undefined =
+    c.get('virtualKeyContext');
+  const allDeployments = virtualKeyContext?.allDeployments;
+
+  // Fast path: single deployment or no context — behave exactly like before
+  if (!allDeployments || allDeployments.length <= 1) {
+    requestHeaders = overrideProviderHeadersFromContext(requestHeaders, c);
+    if (options?.overrideModel !== false) {
+      request = overrideModelFromContext(request as Record<string, any>, c);
+    }
+    const config = constructConfigFromRequestHeaders(requestHeaders);
+    return tryTargetsRecursively(
+      c,
+      config,
+      request as Params | FormData | ReadableStream,
+      requestHeaders,
+      fn,
+      method,
+      'config'
+    );
+  }
+
+  // Multi-deployment failover
+  const ordered = buildFailoverOrder(
+    allDeployments,
+    virtualKeyContext.modelDeploymentId
+  );
+
+  let lastResponse: Response | undefined;
+
+  for (const deployment of ordered) {
+    updateVirtualKeyContextForDeployment(c, deployment);
+
+    let attemptHeaders = { ...requestHeaders };
+    attemptHeaders = overrideProviderHeadersFromContext(attemptHeaders, c);
+
+    let attemptRequest = request;
+    if (options?.overrideModel !== false) {
+      attemptRequest = overrideModelFromContext(
+        request as Record<string, any>,
+        c
+      );
+    }
+
+    const config = constructConfigFromRequestHeaders(attemptHeaders);
+    const response = await tryTargetsRecursively(
+      c,
+      config,
+      attemptRequest as Params | FormData | ReadableStream,
+      attemptHeaders,
+      fn,
+      method,
+      'config'
+    );
+
+    if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
+      return response;
+    }
+
+    console.warn(
+      `Deployment failover: provider=${deployment.provider_name} ` +
+        `deployment=${deployment.deployment_name} (id=${deployment.id}) ` +
+        `returned ${response.status}, trying next`
+    );
+    lastResponse = response;
+  }
+
+  return lastResponse!;
 }

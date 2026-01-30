@@ -1,10 +1,6 @@
 import { Context } from 'hono';
 import { CONTENT_TYPES } from '../globals';
-import {
-  constructConfigFromRequestHeaders,
-  tryTargetsRecursively,
-  overrideProviderHeadersFromContext,
-} from './handlerUtils';
+import { tryWithDeploymentFailover } from './handlerUtils';
 import { RouterError } from '../errors/RouterError';
 
 async function getRequestData(request: Request, contentType: string) {
@@ -26,25 +22,18 @@ async function getRequestData(request: Request, contentType: string) {
 
 export async function proxyHandler(c: Context): Promise<Response> {
   try {
-    let requestHeaders = Object.fromEntries(c.req.raw.headers);
-    requestHeaders = overrideProviderHeadersFromContext(requestHeaders, c);
+    const requestHeaders = Object.fromEntries(c.req.raw.headers);
     const requestContentType = requestHeaders['content-type']?.split(';')[0];
-
     const request = await getRequestData(c.req.raw, requestContentType);
 
-    const camelCaseConfig = constructConfigFromRequestHeaders(requestHeaders);
-
-    const tryTargetsResponse = await tryTargetsRecursively(
+    return await tryWithDeploymentFailover(
       c,
-      camelCaseConfig,
       request,
       requestHeaders,
       'proxy',
       c.req.method,
-      'config'
+      { overrideModel: false }
     );
-
-    return tryTargetsResponse;
   } catch (err: any) {
     console.error('proxyHandler error: ', err);
     let statusCode = 500;

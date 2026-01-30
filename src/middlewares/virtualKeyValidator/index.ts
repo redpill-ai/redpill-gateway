@@ -3,6 +3,7 @@ import {
   findVirtualKeyWithUser,
   VirtualKeyWithUser,
 } from '../../db/postgres/virtualKey';
+import { type ModelDeployment } from '../../db/postgres/model';
 import { ModelService } from '../../services/modelService';
 import { env } from '../../constants';
 import { hash } from '../../utils/hash';
@@ -31,6 +32,7 @@ export interface VirtualKeyContext {
   };
   requestHash?: string;
   spendMode: SpendMode;
+  allDeployments: ModelDeployment[];
 }
 
 class VirtualKeyValidationError extends Error {
@@ -60,6 +62,22 @@ const createErrorResponse = (status: number, message: string) => {
   );
 };
 
+function selectDeploymentByWeight(
+  deployments: ModelDeployment[]
+): ModelDeployment {
+  const totalWeight = deployments.reduce(
+    (sum, d) => sum + (d.config?.weight ?? 1),
+    0
+  );
+  let random = Math.random() * totalWeight;
+  for (const d of deployments) {
+    const w = d.config?.weight ?? 1;
+    if (random < w) return d;
+    random -= w;
+  }
+  return deployments[0];
+}
+
 const createVirtualKeyContext = async (
   c: Context,
   modelName: string,
@@ -67,16 +85,20 @@ const createVirtualKeyContext = async (
   spendMode: SpendMode = 'regular'
 ): Promise<VirtualKeyContext> => {
   const modelService = new ModelService();
-  const deployment = await modelService.getModelDeploymentForModel(modelName, {
-    virtualKeyWithUser,
-  });
+  const allDeployments =
+    await modelService.getAllModelDeploymentsForModel(modelName);
 
-  if (!deployment) {
+  if (!allDeployments.length) {
     throw new VirtualKeyValidationError(
       `Model '${modelName}' is not available`,
       404
     );
   }
+
+  const deployment =
+    allDeployments.length > 1
+      ? selectDeploymentByWeight(allDeployments)
+      : allDeployments[0];
 
   // Calculate hash for Phala provider requests
   let requestHash: string | undefined;
@@ -101,6 +123,7 @@ const createVirtualKeyContext = async (
     },
     requestHash,
     spendMode,
+    allDeployments,
   };
 };
 

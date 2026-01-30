@@ -225,41 +225,38 @@ export class ModelService {
     return first.toLowerCase() === 'embeddings';
   }
 
-  async getModelDeploymentForModel(
-    modelNameOrAlias: string,
-    options?: { virtualKeyWithUser?: VirtualKeyWithUser | null }
-  ): Promise<ModelDeployment | null> {
-    let deployments: ModelDeployment[] | null = null;
-
-    // Check cache first
+  private async getCachedDeployments(
+    modelNameOrAlias: string
+  ): Promise<ModelDeployment[] | null> {
     const cacheKey = buildCacheKey('model-deployment', modelNameOrAlias);
     const cached = await getCache(cacheKey);
 
     if (Array.isArray(cached)) {
-      deployments = cached;
+      return cached.length ? cached : null;
     }
 
-    // Cache miss - query database
+    const deploymentsFromDb = await getModelDeployments(modelNameOrAlias);
+
+    if (!deploymentsFromDb.length) {
+      await setCache(cacheKey, [], 300); // 5 minutes TTL
+      return null;
+    }
+
+    const deployments = deploymentsFromDb.map((deployment) => ({
+      ...deployment,
+      config: this.decryptConfigFields(deployment.config),
+    }));
+
+    await setCache(cacheKey, deployments, 86400); // 24 hours TTL
+    return deployments;
+  }
+
+  async getModelDeploymentForModel(
+    modelNameOrAlias: string,
+    options?: { virtualKeyWithUser?: VirtualKeyWithUser | null }
+  ): Promise<ModelDeployment | null> {
+    const deployments = await this.getCachedDeployments(modelNameOrAlias);
     if (!deployments) {
-      const deploymentsFromDb = await getModelDeployments(modelNameOrAlias);
-
-      if (!deploymentsFromDb.length) {
-        // Cache null result to prevent cache penetration
-        await setCache(cacheKey, [], 300); // 5 minutes TTL
-        return null;
-      }
-
-      // Decrypt sensitive config fields before caching
-      deployments = deploymentsFromDb.map((deployment) => ({
-        ...deployment,
-        config: this.decryptConfigFields(deployment.config),
-      }));
-
-      // Cache the decrypted result
-      await setCache(cacheKey, deployments, 86400); // 24 hours TTL
-    }
-
-    if (!deployments.length) {
       return null;
     }
 
@@ -271,6 +268,12 @@ export class ModelService {
       : 0;
 
     return deployments[deploymentIndex];
+  }
+
+  async getAllModelDeploymentsForModel(
+    modelNameOrAlias: string
+  ): Promise<ModelDeployment[]> {
+    return (await this.getCachedDeployments(modelNameOrAlias)) ?? [];
   }
 
   private decryptConfigFields(config: any): any {
