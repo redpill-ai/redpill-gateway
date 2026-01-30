@@ -27,6 +27,7 @@ describe('ResponseService', () => {
       index: 0,
       traceId: 'trace-123',
       provider: 'openai',
+      providerOption: { provider: 'openai' },
       isStreaming: false,
       params: { model: 'gpt-4', messages: [] },
       strictOpenAiCompliance: true,
@@ -131,7 +132,7 @@ describe('ResponseService', () => {
       expect(responseHandler).toHaveBeenCalledWith(
         mockResponse,
         mockRequestContext.isStreaming,
-        mockRequestContext.provider,
+        mockRequestContext.providerOption,
         'chatComplete',
         mockRequestContext.requestURL,
         false,
@@ -141,7 +142,7 @@ describe('ResponseService', () => {
         mockHooksService.areSyncHooksAvailable
       );
 
-      expect(result.response).toEqual(mockResponse);
+      expect(result.response).toBe(mappedResponse);
       expect(result.responseJson).toBe(responseJson);
       expect(result.originalResponseJson).toBe(originalJson);
     });
@@ -170,7 +171,7 @@ describe('ResponseService', () => {
       expect(responseHandler).toHaveBeenCalledWith(
         mockResponse,
         mockRequestContext.isStreaming,
-        mockRequestContext.provider,
+        mockRequestContext.providerOption,
         'chatComplete',
         mockRequestContext.requestURL,
         true, // isCacheHit should be true
@@ -185,7 +186,7 @@ describe('ResponseService', () => {
       );
     });
 
-    it('should throw error for non-ok response', async () => {
+    it('should return error response as-is when already mapped', async () => {
       const errorResponse = new Response('{"error": "Bad Request"}', {
         status: 400,
       });
@@ -201,10 +202,11 @@ describe('ResponseService', () => {
         retryAttempt: 0,
       };
 
-      await expect(responseService.create(options)).rejects.toThrow();
+      const result = await responseService.create(options);
+      expect(result.response.status).toBe(400);
     });
 
-    it('should handle error response correctly', async () => {
+    it('should return 500 error response with headers appended', async () => {
       const errorResponse = new Response('{"error": "Internal Server Error"}', {
         status: 500,
       });
@@ -220,13 +222,11 @@ describe('ResponseService', () => {
         retryAttempt: 0,
       };
 
-      try {
-        await responseService.create(options);
-      } catch (error: any) {
-        expect(error.status).toBe(500);
-        expect(error.response).toBe(errorResponse);
-        expect(error.message).toBe('{"error": "Internal Server Error"}');
-      }
+      const result = await responseService.create(options);
+      expect(result.response.status).toBe(500);
+      expect(
+        result.response.headers.get(RESPONSE_HEADER_KEYS.TRACE_ID)
+      ).toBe('trace-123');
     });
 
     it('should not add cache status header when not provided', async () => {
@@ -298,7 +298,7 @@ describe('ResponseService', () => {
       expect(responseHandler).toHaveBeenCalledWith(
         mockResponse,
         mockRequestContext.isStreaming,
-        mockRequestContext.provider,
+        mockRequestContext.providerOption,
         'chatComplete',
         mockRequestContext.requestURL,
         false,
@@ -334,7 +334,7 @@ describe('ResponseService', () => {
       expect(responseHandler).toHaveBeenCalledWith(
         mockResponse,
         true, // isStreaming should be true
-        streamingContext.provider,
+        streamingContext.providerOption,
         'chatComplete',
         streamingContext.requestURL,
         false,
@@ -358,7 +358,7 @@ describe('ResponseService', () => {
       expect(responseHandler).toHaveBeenCalledWith(
         mockResponse,
         mockRequestContext.isStreaming,
-        mockRequestContext.provider,
+        mockRequestContext.providerOption,
         'chatComplete',
         mockRequestContext.requestURL,
         true, // isCacheHit should be true

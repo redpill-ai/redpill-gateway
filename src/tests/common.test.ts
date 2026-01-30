@@ -2,6 +2,9 @@ import Providers from '../providers';
 import testVariables from './resources/testVariables';
 import { executeChatCompletionEndpointTests } from './routeSpecificTestFunctions.ts/chatCompletion';
 
+// Ensure suite is never empty (Jest requires at least one test)
+it.skip('provider integration tests require API keys', () => {});
+
 for (const provider in testVariables) {
   const variables = testVariables[provider];
   const config = Providers[provider];

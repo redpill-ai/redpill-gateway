@@ -276,28 +276,35 @@ describe('LogsService', () => {
   });
 
   describe('addRequestLog', () => {
-    it('should add log to existing logs', () => {
-      const existingLogs = [{ id: 'log1' }];
-      const newLog = { id: 'log2' };
-      (mockContext.get as jest.Mock).mockReturnValue(existingLogs);
+    it('should keep only the last log entry when cache is enabled', () => {
+      jest.replaceProperty(
+        require('../../../../../conf.json'),
+        'cache',
+        true
+      );
 
+      const newLog = { id: 'log2' };
       logsService.addRequestLog(newLog);
 
       expect(mockContext.set).toHaveBeenCalledWith('requestOptions', [
-        { id: 'log1' },
         { id: 'log2' },
       ]);
+
+      jest.restoreAllMocks();
     });
 
-    it('should add log when no existing logs', () => {
-      const newLog = { id: 'log1' };
-      (mockContext.get as jest.Mock).mockReturnValue([]);
+    it('should not add log when cache is disabled', () => {
+      jest.replaceProperty(
+        require('../../../../../conf.json'),
+        'cache',
+        false
+      );
 
-      logsService.addRequestLog(newLog);
+      logsService.addRequestLog({ id: 'log1' });
 
-      expect(mockContext.set).toHaveBeenCalledWith('requestOptions', [
-        { id: 'log1' },
-      ]);
+      expect(mockContext.set).not.toHaveBeenCalled();
+
+      jest.restoreAllMocks();
     });
   });
 });
