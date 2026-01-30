@@ -23,7 +23,7 @@ import { retryRequest } from './retryHandler';
 import { env } from 'hono/adapter';
 import {
   afterRequestHookHandler,
-  normalizeErrorResponse,
+  normalizeResponse,
   responseHandler,
 } from './responseHandlers';
 import { HookSpan } from '../middlewares/hooks';
@@ -1401,7 +1401,7 @@ export async function tryWithDeploymentFailover(
       request = overrideModelFromContext(request as Record<string, any>, c);
     }
     const config = constructConfigFromRequestHeaders(requestHeaders);
-    return normalizeErrorResponse(
+    return normalizeResponse(
       await tryTargetsRecursively(
         c,
         config,
@@ -1451,11 +1451,11 @@ export async function tryWithDeploymentFailover(
     );
 
     if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
-      return normalizeErrorResponse(response);
+      return normalizeResponse(response);
     }
 
     if (response.status === 429 && isBasicTier) {
-      return normalizeErrorResponse(response);
+      return normalizeResponse(response);
     }
 
     console.warn(
@@ -1466,5 +1466,5 @@ export async function tryWithDeploymentFailover(
     lastResponse = response;
   }
 
-  return normalizeErrorResponse(lastResponse!);
+  return normalizeResponse(lastResponse!);
 }

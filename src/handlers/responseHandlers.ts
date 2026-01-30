@@ -90,9 +90,7 @@ async function tryParseJsonBody(
  * Normalizes non-2xx upstream provider responses into a consistent
  * OpenAI-compatible error format, sanitizing provider-internal details.
  */
-export async function normalizeErrorResponse(
-  response: Response
-): Promise<Response> {
+export async function normalizeResponse(response: Response): Promise<Response> {
   if (response.ok || response.status === 246) {
     return response;
   }
