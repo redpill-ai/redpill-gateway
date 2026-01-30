@@ -1420,6 +1420,9 @@ export async function tryWithDeploymentFailover(
     virtualKeyContext.modelDeploymentId
   );
 
+  const isBasicTier =
+    (virtualKeyContext?.virtualKeyWithUser?.metadata as Record<string, any>)
+      ?.tier === 'basic';
   let lastResponse: Response | undefined;
 
   for (const deployment of ordered) {
@@ -1448,6 +1451,10 @@ export async function tryWithDeploymentFailover(
     );
 
     if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
+      return normalizeErrorResponse(response);
+    }
+
+    if (response.status === 429 && isBasicTier) {
       return normalizeErrorResponse(response);
     }
 
