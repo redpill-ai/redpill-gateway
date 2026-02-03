@@ -194,8 +194,10 @@ export class ModelService {
       });
       results.push(originalModelData);
 
-      // Add each alias as a separate model entry
-      const modelAliases = aliasesByModelId[model.id] || [];
+      // Add each alias as a separate model entry (only phala/ prefixed aliases)
+      const modelAliases = (aliasesByModelId[model.id] || []).filter((alias) =>
+        alias.alias.startsWith('phala/')
+      );
       for (const alias of modelAliases) {
         const aliasModelData = ModelSchema.parse({
           id: alias.alias,
