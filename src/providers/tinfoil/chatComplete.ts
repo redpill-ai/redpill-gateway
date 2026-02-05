@@ -120,4 +120,7 @@ export const TinfoilChatCompleteConfig: ProviderConfig = {
   verbosity: {
     param: 'verbosity',
   },
+  chat_template_kwargs: {
+    param: 'chat_template_kwargs',
+  },
 };
