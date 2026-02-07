@@ -44,7 +44,7 @@ export async function getModels(provider?: string): Promise<Model[]> {
     query = `
       SELECT DISTINCT m.* FROM models m
       JOIN model_deployments md ON m.id = md.model_id
-      WHERE m.active = true AND md.provider_name = $1 AND md.active = true
+      WHERE m.active = true AND md.provider_name = $1
     `;
     params = [provider];
   }
