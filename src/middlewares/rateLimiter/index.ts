@@ -49,27 +49,22 @@ export const rateLimiter = async (c: Context, next: () => Promise<void>) => {
   const { virtualKeyWithUser } = virtualKeyContext;
   const { user } = virtualKeyWithUser;
 
-  // Skip rate limiting for enterprise users
-  if (user.user_tier === ENTERPRISE_TIER) {
-    return next();
-  }
-
-  // Determine rate limit (user level > default)
-  const rpmLimit = user.rate_limit_rpm ?? env.DEFAULT_RATE_LIMIT_RPM;
-
   try {
-    // 1. Global user-level rate limit check
-    const result = await checkAndIncrementRateLimit(user.id, rpmLimit);
+    // 1. Global user-level rate limit check (skip for enterprise users)
+    if (user.user_tier !== ENTERPRISE_TIER) {
+      const rpmLimit = user.rate_limit_rpm ?? env.DEFAULT_RATE_LIMIT_RPM;
+      const result = await checkAndIncrementRateLimit(user.id, rpmLimit);
 
-    c.header('X-RateLimit-Limit', String(result.limit));
-    c.header('X-RateLimit-Remaining', String(result.remaining));
-    c.header('X-RateLimit-Reset', String(result.resetAt));
+      c.header('X-RateLimit-Limit', String(result.limit));
+      c.header('X-RateLimit-Remaining', String(result.remaining));
+      c.header('X-RateLimit-Reset', String(result.resetAt));
 
-    if (!result.allowed) {
-      return createRateLimitResponse(result.limit, result.resetAt);
+      if (!result.allowed) {
+        return createRateLimitResponse(result.limit, result.resetAt);
+      }
     }
 
-    // 2. Per-model rate limit check
+    // 2. Per-model rate limit check (applies to all users including enterprise)
     const modelDbId = virtualKeyContext.allDeployments[0]?.model_id;
     if (modelDbId) {
       const modelConfig = await getModelRateLimitConfig(user.id);
