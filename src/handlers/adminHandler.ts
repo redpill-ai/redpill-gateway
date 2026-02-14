@@ -8,6 +8,7 @@
 import { Context } from 'hono';
 import { findVirtualKeyWithUser } from '../db/postgres/virtualKey';
 import { ModelService } from '../services/modelService';
+import { getRedisClient, buildCacheKey } from '../db/redis';
 
 const createErrorResponse = (status: number, message: string) => {
   return new Response(
@@ -56,16 +57,36 @@ async function validateAdminKey(
 }
 
 /**
+ * DELETE /admin/model-ratelimit-config/cache/:userId
+ *
+ * Clears the cached model rate limit config for a specific user.
+ * Requires X-API-Key header with an admin virtual key.
+ */
+export const modelRateLimitConfigCacheClearHandler = async (c: Context) => {
+  const auth = await validateAdminKey(c);
+  if (!auth.valid) {
+    return createErrorResponse(auth.status, auth.message);
+  }
+
+  const userId = c.req.param('userId');
+
+  try {
+    const key = buildCacheKey('model_ratelimit_config', userId);
+    const client = await getRedisClient();
+    await client.del(key);
+
+    return c.json({ success: true, cleared: key });
+  } catch (error) {
+    console.error('Model rate limit config cache clear error:', error);
+    return createErrorResponse(500, 'Failed to clear cache');
+  }
+};
+
+/**
  * POST /admin/cache/refresh
  *
  * Refreshes all model caches in Redis.
  * Requires X-API-Key header with an admin virtual key.
- *
- * Response:
- * {
- *   "success": true,
- *   "cleared": ["models:*", "model-deployment:*", "embedding-models:*"]
- * }
  */
 export const cacheRefreshHandler = async (c: Context) => {
   const auth = await validateAdminKey(c);

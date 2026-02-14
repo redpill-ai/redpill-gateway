@@ -37,7 +37,10 @@ import batchesHandler from './handlers/batchesHandler';
 import finetuneHandler from './handlers/finetuneHandler';
 import { messagesHandler } from './handlers/messagesHandler';
 import { attestationHandler } from './handlers/attestationHandler';
-import { cacheRefreshHandler } from './handlers/adminHandler';
+import {
+  cacheRefreshHandler,
+  modelRateLimitConfigCacheClearHandler,
+} from './handlers/adminHandler';
 
 // Config
 import conf from '../conf.json';
@@ -280,6 +283,10 @@ app.get('/v1/embeddings/models', embeddingModelsHandler);
 
 // Admin routes
 app.post('/admin/cache/refresh', cacheRefreshHandler);
+app.delete(
+  '/admin/model-ratelimit-config/cache/:userId',
+  modelRateLimitConfigCacheClearHandler
+);
 
 // WebSocket route
 // if (runtime === 'workerd') {

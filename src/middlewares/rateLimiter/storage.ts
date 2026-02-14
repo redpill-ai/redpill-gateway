@@ -1,10 +1,18 @@
-import { getRedisClient, buildCacheKey } from '../../db/redis';
-import { RateLimitResult } from './types';
+import {
+  getRedisClient,
+  buildCacheKey,
+  getCache,
+  setCache,
+} from '../../db/redis';
+import { queryPostgres } from '../../db/postgres/connection';
+import { RateLimitResult, ModelRateLimitConfig } from './types';
 
 const WINDOW_SIZE_SECONDS = 60;
+const MODEL_RATELIMIT_CONFIG_TTL = 7200; // Cache config for 2 hours, invalidated via API
 
-export async function checkAndIncrementRateLimit(
-  userId: number,
+async function slidingWindowCheck(
+  keyPrefix: string,
+  id: string,
   limit: number
 ): Promise<RateLimitResult> {
   const client = await getRedisClient();
@@ -12,16 +20,8 @@ export async function checkAndIncrementRateLimit(
   const currentWindow = Math.floor(now / WINDOW_SIZE_SECONDS);
   const previousWindow = currentWindow - 1;
 
-  const currentKey = buildCacheKey(
-    'ratelimit',
-    String(userId),
-    String(currentWindow)
-  );
-  const previousKey = buildCacheKey(
-    'ratelimit',
-    String(userId),
-    String(previousWindow)
-  );
+  const currentKey = buildCacheKey(keyPrefix, id, String(currentWindow));
+  const previousKey = buildCacheKey(keyPrefix, id, String(previousWindow));
 
   // Single Redis round-trip: get previous count, increment current, set TTL
   const results = await client
@@ -52,4 +52,54 @@ export async function checkAndIncrementRateLimit(
   const remaining = allowed ? Math.max(0, limit - estimatedCount) : 0;
 
   return { allowed, remaining, resetAt, limit };
+}
+
+export async function checkAndIncrementRateLimit(
+  userId: number,
+  limit: number
+): Promise<RateLimitResult> {
+  return slidingWindowCheck('ratelimit', String(userId), limit);
+}
+
+export async function getModelRateLimitConfig(
+  userId: number
+): Promise<ModelRateLimitConfig | null> {
+  const cacheKey = buildCacheKey('model_ratelimit_config', String(userId));
+
+  // Try Redis cache first
+  const cached = await getCache(cacheKey);
+  if (cached !== null) {
+    return cached as ModelRateLimitConfig;
+  }
+
+  // Query DB
+  const rows = await queryPostgres<{
+    model_id: number;
+    rate_limit_rpm: number;
+  }>(
+    'SELECT model_id, rate_limit_rpm FROM user_model_rate_limits WHERE user_id = $1',
+    [userId]
+  );
+
+  if (rows.length === 0) {
+    // Cache empty result to avoid repeated DB queries
+    await setCache(cacheKey, {}, MODEL_RATELIMIT_CONFIG_TTL);
+    return null;
+  }
+
+  const config: ModelRateLimitConfig = {};
+  for (const row of rows) {
+    config[String(row.model_id)] = { rpm: row.rate_limit_rpm };
+  }
+
+  await setCache(cacheKey, config, MODEL_RATELIMIT_CONFIG_TTL);
+  return config;
+}
+
+export async function checkAndIncrementModelRateLimit(
+  userId: number,
+  modelDbId: number,
+  limit: number
+): Promise<RateLimitResult> {
+  return slidingWindowCheck('model_ratelimit', `${userId}:${modelDbId}`, limit);
 }
