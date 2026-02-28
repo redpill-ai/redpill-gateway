@@ -47,7 +47,7 @@ export async function getModelsByProviders(
   const query = `
     SELECT DISTINCT m.* FROM models m
     JOIN model_deployments md ON m.id = md.model_id
-    WHERE m.active = true AND md.provider_name IN (${placeholders})
+    WHERE m.active = true AND md.active = true AND md.provider_name IN (${placeholders})
   `;
 
   const results = await queryPostgres<unknown>(query, providers);
