@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   getModels,
+  getModelsByProviders,
   getModelDeployment,
   getModelDeployments,
   getAllModelAliases,
@@ -49,6 +50,8 @@ const ModelSchema = z.object({
 type TransformOptions = {
   includeEmbeddings?: boolean;
   onlyEmbeddings?: boolean;
+  excludeAliases?: boolean;
+  overrideProviders?: string[];
 };
 
 export class ModelService {
@@ -108,6 +111,21 @@ export class ModelService {
     return transformedModels;
   }
 
+  async getPhalaModels(): Promise<z.infer<typeof ModelSchema>[]> {
+    const cacheKey = buildCacheKey('models', 'phala-native');
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const models = await getModelsByProviders(['phala', 'near-ai']);
+    const transformedModels = await this.transformModels(models, {
+      includeEmbeddings: false,
+      excludeAliases: true,
+      overrideProviders: ['phala'],
+    });
+    await setCache(cacheKey, transformedModels, 7200);
+    return transformedModels;
+  }
+
   async isValidModel(modelId: string): Promise<boolean> {
     const allModels = await this.getAllModels();
     return allModels.some((model) => model.id === modelId);
@@ -117,7 +135,12 @@ export class ModelService {
     models: Model[],
     options: TransformOptions = {}
   ): Promise<z.infer<typeof ModelSchema>[]> {
-    const { includeEmbeddings = false, onlyEmbeddings = false } = options;
+    const {
+      includeEmbeddings = false,
+      onlyEmbeddings = false,
+      excludeAliases = false,
+      overrideProviders,
+    } = options;
     const results = [];
 
     // Get all aliases in one query to avoid N+1
@@ -176,7 +199,9 @@ export class ModelService {
         },
         supported_sampling_parameters: specs.supported_sampling_parameters,
         supported_features: specs.supported_features,
-        providers: Array.from(providersByModelId[model.id] || []).sort(),
+        providers:
+          overrideProviders ||
+          Array.from(providersByModelId[model.id] || []).sort(),
         description: model.description,
         ...(config.appid
           ? {
@@ -195,15 +220,17 @@ export class ModelService {
       results.push(originalModelData);
 
       // Add each alias as a separate model entry (only phala/ prefixed aliases)
-      const modelAliases = (aliasesByModelId[model.id] || []).filter((alias) =>
-        alias.alias.startsWith('phala/')
-      );
-      for (const alias of modelAliases) {
-        const aliasModelData = ModelSchema.parse({
-          id: alias.alias,
-          ...baseModelData,
-        });
-        results.push(aliasModelData);
+      if (!excludeAliases) {
+        const modelAliases = (aliasesByModelId[model.id] || []).filter(
+          (alias) => alias.alias.startsWith('phala/')
+        );
+        for (const alias of modelAliases) {
+          const aliasModelData = ModelSchema.parse({
+            id: alias.alias,
+            ...baseModelData,
+          });
+          results.push(aliasModelData);
+        }
       }
     }
 

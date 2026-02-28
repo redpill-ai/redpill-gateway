@@ -30,7 +30,7 @@ import { imageGenerationsHandler } from './handlers/imageGenerationsHandler';
 import { createSpeechHandler } from './handlers/createSpeechHandler';
 import { createTranscriptionHandler } from './handlers/createTranscriptionHandler';
 import { createTranslationHandler } from './handlers/createTranslationHandler';
-import { modelsHandler } from './handlers/modelsHandler';
+import { modelsHandler, phalaModelsHandler } from './handlers/modelsHandler';
 import { embeddingModelsHandler } from './handlers/embeddingModelsHandler';
 import filesHandler from './handlers/filesHandler';
 import batchesHandler from './handlers/batchesHandler';
@@ -278,6 +278,7 @@ app.post('/v1/prompts/*', requestValidator, (c) => {
 });
 
 app.get('/v1/models', modelsHandler);
+app.get('/v1/models/providers/phala', phalaModelsHandler);
 app.get('/v1/models/:provider', modelsHandler);
 app.get('/v1/embeddings/models', embeddingModelsHandler);
 

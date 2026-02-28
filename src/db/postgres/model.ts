@@ -36,6 +36,24 @@ export type Model = z.infer<typeof ModelSchema>;
 export type ModelDeployment = z.infer<typeof ModelDeploymentSchema>;
 export type ModelAlias = z.infer<typeof ModelAliasSchema>;
 
+export async function getModelsByProviders(
+  providers: string[]
+): Promise<Model[]> {
+  if (providers.length === 0) {
+    return [];
+  }
+
+  const placeholders = providers.map((_, index) => `$${index + 1}`).join(',');
+  const query = `
+    SELECT DISTINCT m.* FROM models m
+    JOIN model_deployments md ON m.id = md.model_id
+    WHERE m.active = true AND md.provider_name IN (${placeholders})
+  `;
+
+  const results = await queryPostgres<unknown>(query, providers);
+  return results.map((row) => ModelSchema.parse(row));
+}
+
 export async function getModels(provider?: string): Promise<Model[]> {
   let query = 'SELECT * FROM models WHERE active = true';
   let params: string[] = [];
