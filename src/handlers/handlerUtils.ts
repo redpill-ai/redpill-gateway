@@ -15,6 +15,7 @@ import {
   SAGEMAKER,
   FIREWORKS_AI,
   CORTEX,
+  E2EE_FORWARD_HEADER_KEYS,
 } from '../globals';
 import { endpointStrings } from '../providers/types';
 import { Options, Params, StrategyModes, Targets } from '../types/requestBody';
@@ -135,11 +136,22 @@ function constructRequestHeaders(
         requestHeaders[lowerCaseHeaderKey];
   });
 
+  const e2eeHeadersMap: Record<string, string> = {};
+  const shouldAutoForwardE2EE = fn === 'chatComplete' || fn === 'messages';
+  if (shouldAutoForwardE2EE) {
+    E2EE_FORWARD_HEADER_KEYS.forEach((headerKey) => {
+      if (requestHeaders[headerKey]) {
+        e2eeHeadersMap[headerKey] = requestHeaders[headerKey];
+      }
+    });
+  }
+
   // Add any headers that the model might need
   headers = {
     ...baseHeaders,
     ...headers,
     ...forwardHeadersMap,
+    ...e2eeHeadersMap,
     ...(fn === 'proxy' && proxyHeaders),
     ...(requestHeaders['x-request-hash'] && {
       'x-request-hash': requestHeaders['x-request-hash'],

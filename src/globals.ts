@@ -33,6 +33,15 @@ export const RESPONSE_HEADER_KEYS: Record<string, string> = {
   TRACE_ID: `x-${POWERED_BY}-trace-id`,
 };
 
+export const E2EE_FORWARD_HEADER_KEYS = [
+  'x-signing-algo',
+  'x-client-pub-key',
+  'x-model-pub-key',
+  'x-e2ee-version',
+  'x-e2ee-nonce',
+  'x-e2ee-timestamp',
+] as const;
+
 export const RETRY_STATUS_CODES = [429, 500, 502, 503, 504];
 export const MAX_RETRIES = 5;
 export const REQUEST_TIMEOUT_STATUS_CODE = 408;
