@@ -123,8 +123,8 @@ See [Documentation](https://docs.redpill.ai) for complete verification guide.
 ## 📚 Documentation
 
 - **Full Documentation**: https://docs.redpill.ai
-- **API Reference**: https://docs.redpill.ai/api-reference
-- **Verification Guide**: https://docs.redpill.ai/confidential-ai/attestation
+- **API Reference**: https://docs.redpill.ai/developers/api-reference/overview
+- **Verification Guide**: https://docs.redpill.ai/developers/guides/verification
 ## 🧪 Testing
 
 ```bash
