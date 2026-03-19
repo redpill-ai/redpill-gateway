@@ -1,6 +1,11 @@
 import { Context } from 'hono';
 import { proxyHandler } from './proxyHandler';
 import { fetchIntelQuote, TinfoilError } from '../services/tinfoilService';
+import {
+  fetchChutesAttestation,
+  getChuteIdByName,
+  ChutesError,
+} from '../services/chutesService';
 import { updateVirtualKeyContextForDeployment } from './handlerUtils';
 
 /**
@@ -55,17 +60,38 @@ export async function attestationHandler(c: Context): Promise<Response> {
     }
   }
 
-  // Handle Chutes provider - attestation not yet supported
+  // Handle Chutes provider
   if (virtualKeyContext?.providerConfig?.provider === 'chutes') {
-    return new Response(
-      JSON.stringify({
-        all_attestations: [],
-      }),
-      {
+    const modelName = virtualKeyContext.deploymentName;
+    const apiKey = virtualKeyContext.providerConfig.apiKey;
+    const baseUrl = virtualKeyContext.providerConfig.customHost;
+
+    try {
+      // Lookup chute_id by model name (cached for 60 minutes)
+      const chuteId = await getChuteIdByName(modelName, apiKey, baseUrl);
+      const result = await fetchChutesAttestation(chuteId, apiKey, baseUrl);
+      return new Response(JSON.stringify(result), {
         status: 200,
         headers: { 'content-type': 'application/json' },
-      }
-    );
+      });
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : 'Unknown error occurred';
+      const statusCode = error instanceof ChutesError ? error.statusCode : 500;
+      return new Response(
+        JSON.stringify({
+          error: {
+            message,
+            type: 'chutes_attestation_error',
+          },
+        }),
+        {
+          status: statusCode,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+    }
   }
 
   // For other providers, use proxy handler
