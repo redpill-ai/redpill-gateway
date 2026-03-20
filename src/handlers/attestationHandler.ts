@@ -4,6 +4,7 @@ import { fetchIntelQuote, TinfoilError } from '../services/tinfoilService';
 import {
   fetchChutesAttestation,
   getChuteIdByName,
+  clearChuteIdCache,
   ChutesError,
 } from '../services/chutesService';
 import { updateVirtualKeyContextForDeployment } from './handlerUtils';
@@ -33,6 +34,7 @@ export async function attestationHandler(c: Context): Promise<Response> {
     try {
       const result = await fetchIntelQuote(modelId);
       const response = {
+        attestation_type: 'tinfoil',
         intel_quote: result.intel_quote,
         all_attestations: [{ intel_quote: result.intel_quote }],
       };
@@ -76,6 +78,8 @@ export async function attestationHandler(c: Context): Promise<Response> {
       });
     } catch (error) {
       console.error(error);
+      // Clear cache on error so next request will retry
+      clearChuteIdCache(modelName);
       const message =
         error instanceof Error ? error.message : 'Unknown error occurred';
       const statusCode = error instanceof ChutesError ? error.statusCode : 500;

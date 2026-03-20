@@ -21,6 +21,13 @@ interface ChuteIdCache {
 // Cache for model name -> chute_id mapping
 const chuteIdCache = new Map<string, ChuteIdCache>();
 
+/**
+ * Clears the cache for a specific model name
+ */
+export function clearChuteIdCache(modelName: string): void {
+  chuteIdCache.delete(modelName);
+}
+
 interface ChutesListResponse {
   total: number;
   page: number;
@@ -60,6 +67,7 @@ export interface ChutesAttestation {
 }
 
 export interface ChutesAttestationResult {
+  attestation_type: 'chutes';
   nonce: string;
   all_attestations: ChutesAttestation[];
 }
@@ -235,6 +243,7 @@ export async function fetchChutesAttestation(
   }
 
   return {
+    attestation_type: 'chutes',
     nonce,
     all_attestations: attestations,
   };
