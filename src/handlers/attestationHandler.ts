@@ -66,12 +66,12 @@ export async function attestationHandler(c: Context): Promise<Response> {
   if (virtualKeyContext?.providerConfig?.provider === 'chutes') {
     const modelName = virtualKeyContext.deploymentName;
     const apiKey = virtualKeyContext.providerConfig.apiKey;
-    const baseUrl = virtualKeyContext.providerConfig.customHost;
+    // Chutes attestation API always uses https://api.chutes.ai (not customHost)
 
     try {
       // Lookup chute_id by model name (cached for 60 minutes)
-      const chuteId = await getChuteIdByName(modelName, apiKey, baseUrl);
-      const result = await fetchChutesAttestation(chuteId, apiKey, baseUrl);
+      const chuteId = await getChuteIdByName(modelName, apiKey);
+      const result = await fetchChutesAttestation(chuteId, apiKey);
       return new Response(JSON.stringify(result), {
         status: 200,
         headers: { 'content-type': 'application/json' },
