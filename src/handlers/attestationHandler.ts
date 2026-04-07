@@ -30,12 +30,7 @@ export async function attestationHandler(c: Context): Promise<Response> {
   }
 
   // Handle Tinfoil provider separately for /v1/attestation/report.
-  // /v1/attestation/chain should be proxied to the upstream deployment so the
-  // response shape is fully controlled by upstream (no gateway-side parsing).
-  if (
-    virtualKeyContext?.providerConfig?.provider === 'tinfoil' &&
-    !isAttestationChain
-  ) {
+  if (virtualKeyContext?.providerConfig?.provider === 'tinfoil') {
     const modelId = virtualKeyContext.deploymentName;
 
     try {
