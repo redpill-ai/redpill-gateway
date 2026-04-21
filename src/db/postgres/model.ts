@@ -61,10 +61,23 @@ export async function getModels(provider?: string): Promise<Model[]> {
   if (provider) {
     query = `
       SELECT DISTINCT m.* FROM models m
-      JOIN model_deployments md ON m.id = md.model_id
-      WHERE m.active = true AND md.provider_name = $1
+      WHERE m.active = true
+        AND (
+          EXISTS (
+            SELECT 1 FROM model_deployments md
+            WHERE md.model_id = m.id AND md.provider_name = $1
+          )
+          OR EXISTS (
+            SELECT 1 FROM model_aliases ma
+            JOIN model_deployments md2 ON md2.model_id = ma.model_id
+            WHERE ma.model_id = m.id
+              AND starts_with(ma.alias, $2)
+              AND ma.active = true
+              AND md2.active = true
+          )
+        )
     `;
-    params = [provider];
+    params = [provider, `${provider}/`];
   }
 
   const results = await queryPostgres<unknown>(query, params);
