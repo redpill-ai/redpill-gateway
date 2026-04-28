@@ -16,6 +16,8 @@ import { updateVirtualKeyContextForDeployment } from './handlerUtils';
  */
 export async function attestationHandler(c: Context): Promise<Response> {
   const virtualKeyContext = c.get('virtualKeyContext');
+  const requestPath = new URL(c.req.url).pathname;
+  const isAttestationChain = requestPath === '/v1/attestation/chain';
 
   const signingAddress = c.req.query('signing_address');
   if (signingAddress && virtualKeyContext?.allDeployments?.length) {
@@ -27,7 +29,7 @@ export async function attestationHandler(c: Context): Promise<Response> {
     }
   }
 
-  // Handle Tinfoil provider separately
+  // Handle Tinfoil provider separately for /v1/attestation/report.
   if (virtualKeyContext?.providerConfig?.provider === 'tinfoil') {
     const modelId = virtualKeyContext.deploymentName;
 
@@ -62,8 +64,13 @@ export async function attestationHandler(c: Context): Promise<Response> {
     }
   }
 
-  // Handle Chutes provider
-  if (virtualKeyContext?.providerConfig?.provider === 'chutes') {
+  // Handle Chutes provider for /v1/attestation/report.
+  // /v1/attestation/chain should be proxied to the upstream deployment so the
+  // response shape is fully controlled by upstream (no gateway-side parsing).
+  if (
+    virtualKeyContext?.providerConfig?.provider === 'chutes' &&
+    !isAttestationChain
+  ) {
     const modelName = virtualKeyContext.deploymentName;
     const apiKey = virtualKeyContext.providerConfig.apiKey;
     // Chutes attestation API always uses https://api.chutes.ai (not customHost)

@@ -302,6 +302,12 @@ app.get(
   attestationHandler
 );
 app.get(
+  '/v1/attestation/chain',
+  virtualKeyValidator,
+  rateLimiter,
+  attestationHandler
+);
+app.get(
   '/v1/signature/*',
   virtualKeyValidator,
   rateLimiter,
