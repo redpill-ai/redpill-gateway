@@ -36,8 +36,7 @@ const ModelSchema = z.object({
       input_cache_writes: z.string().default('0'),
     })
     .default({}),
-  supported_sampling_parameters: z.array(z.string()).default(['temperature']),
-  supported_features: z.array(z.string()).default([]),
+  supported_parameters: z.array(z.string()).default([]),
   providers: z.array(z.string()).default([]),
   description: z.string().optional(),
   metadata: z
@@ -197,8 +196,7 @@ export class ModelService {
           prompt: config.input_cost_per_token,
           completion: config.output_cost_per_token,
         },
-        supported_sampling_parameters: specs.supported_sampling_parameters,
-        supported_features: specs.supported_features,
+        supported_parameters: specs.supported_parameters,
         providers:
           overrideProviders ||
           Array.from(providersByModelId[model.id] || []).sort(),
