@@ -43,6 +43,8 @@ import { PreRequestValidatorService } from './services/preRequestValidatorServic
 import { ProviderContext } from './services/providerContext';
 import { RequestContext } from './services/requestContext';
 import { ResponseService } from './services/responseService';
+import { RequestLogQueue } from '../services/requestLogQueue';
+import { statusToErrorType } from '../middlewares/requestLogger';
 
 function constructRequestBody(
   requestContext: RequestContext,
@@ -1357,14 +1359,57 @@ function buildFailoverOrder(
   allDeployments: ModelDeployment[],
   primaryId: number
 ): ModelDeployment[] {
+  // allDeployments arrives metric-ranked from virtualKeyValidator; primary is
+  // expected to be deployments[0]. We still allow primaryId to override (e.g.
+  // when ctx.modelDeploymentId was set by a different code path).
   const primary = allDeployments.find((d) => d.id === primaryId);
   const rest = allDeployments.filter((d) => d.id !== primaryId);
-  // Shuffle remaining to avoid thundering herd
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [rest[i], rest[j]] = [rest[j], rest[i]];
-  }
   return primary ? [primary, ...rest] : rest;
+}
+
+function enqueueFailedAttempt(
+  c: Context,
+  deployment: ModelDeployment,
+  attemptIndex: number,
+  status: number,
+  attemptStartMs: number,
+  attemptDurationMs: number
+): void {
+  const ctx = c.get('virtualKeyContext') as VirtualKeyContext | undefined;
+  const requestId = (c.get('requestId') as string | undefined) ?? '';
+  const endpoint = new URL(c.req.url).pathname;
+  RequestLogQueue.getInstance()
+    .enqueue({
+      request_id: requestId,
+      timestamp: new Date(attemptStartMs)
+        .toISOString()
+        .replace('T', ' ')
+        .replace('Z', ''),
+      endpoint,
+      model: ctx?.originalModel ?? '',
+      provider: deployment.provider_name,
+      model_deployment_id: deployment.id,
+      deployment_name: deployment.deployment_name,
+      attempt_index: attemptIndex,
+      status_code: status,
+      error_type: statusToErrorType(status),
+      error_message: '',
+      duration_ms: attemptDurationMs,
+      ttft_ms: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      user_id: ctx?.virtualKeyWithUser?.user?.id ?? 0,
+      virtual_key_id: ctx?.virtualKeyWithUser?.id ?? 0,
+      is_streaming: 0,
+      cache_hit: 0,
+    })
+    .catch((err) => {
+      const isAbort =
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message === 'aborted');
+      if (isAbort) return;
+      console.error('[REQUEST_LOG] failed-attempt enqueue failed:', err);
+    });
 }
 
 export function updateVirtualKeyContextForDeployment(
@@ -1436,8 +1481,10 @@ export async function tryWithDeploymentFailover(
     (virtualKeyContext?.virtualKeyWithUser?.metadata as Record<string, any>)
       ?.tier === 'basic';
   let lastResponse: Response | undefined;
+  let lastAttemptIndex = 0;
 
-  for (const deployment of ordered) {
+  for (let i = 0; i < ordered.length; i++) {
+    const deployment = ordered[i];
     updateVirtualKeyContextForDeployment(c, deployment);
 
     let attemptHeaders = { ...requestHeaders };
@@ -1452,6 +1499,7 @@ export async function tryWithDeploymentFailover(
     }
 
     const config = constructConfigFromRequestHeaders(attemptHeaders);
+    const attemptStart = Date.now();
     const response = await tryTargetsRecursively(
       c,
       config,
@@ -1461,13 +1509,32 @@ export async function tryWithDeploymentFailover(
       method,
       'config'
     );
+    const attemptDuration = Date.now() - attemptStart;
 
     if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
+      c.set('attemptIndex', i);
       return normalizeResponse(response);
     }
 
     if (response.status === 429 && isBasicTier) {
+      c.set('attemptIndex', i);
       return normalizeResponse(response);
+    }
+
+    // Failed attempt that we will retry — log it now, before moving on.
+    // Skip the last iteration: there's no "next" to move on to, and the outer
+    // requestLogger middleware will write the final row (incl. TTFT). Writing
+    // here AND letting the outer middleware write would produce duplicate rows
+    // with the same (request_id, attempt_index).
+    if (i < ordered.length - 1) {
+      enqueueFailedAttempt(
+        c,
+        deployment,
+        i,
+        response.status,
+        attemptStart,
+        attemptDuration
+      );
     }
 
     console.warn(
@@ -1476,7 +1543,9 @@ export async function tryWithDeploymentFailover(
         `returned ${response.status}, trying next`
     );
     lastResponse = response;
+    lastAttemptIndex = i;
   }
 
+  c.set('attemptIndex', lastAttemptIndex);
   return normalizeResponse(lastResponse!);
 }
