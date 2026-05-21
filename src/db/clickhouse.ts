@@ -48,3 +48,52 @@ export async function insertSpendLogs(logs: SpendLogRow[]): Promise<void> {
     throw error;
   }
 }
+
+export type RequestLogErrorType =
+  | ''
+  | 'timeout'
+  | 'rate_limit'
+  | 'upstream_5xx'
+  | 'upstream_4xx'
+  | 'connection'
+  | 'cancelled'
+  | 'gateway';
+
+export interface RequestLogRow {
+  request_id: string;
+  timestamp: string;
+  endpoint: string;
+  model: string;
+  provider: string;
+  model_deployment_id: number;
+  deployment_name: string;
+  attempt_index: number;
+  status_code: number;
+  error_type: RequestLogErrorType;
+  error_message: string;
+  duration_ms: number;
+  ttft_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  user_id: number;
+  virtual_key_id: number;
+  is_streaming: number;
+  cache_hit: number;
+}
+
+export async function insertRequestLogs(logs: RequestLogRow[]): Promise<void> {
+  if (logs.length === 0) return;
+
+  try {
+    const client = await getClickHouseClient();
+
+    await client.insert({
+      table: 'request_logs',
+      values: logs,
+      format: 'JSONEachRow',
+    });
+  } catch (error) {
+    console.error('[CLICKHOUSE] Failed to insert request logs:', error);
+    throw error;
+  }
+}
