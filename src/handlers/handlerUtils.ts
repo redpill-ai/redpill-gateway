@@ -525,6 +525,12 @@ export async function tryTargetsRecursively(
   // Inherited config can be empty only for the base case of recursive call.
   // To avoid redundant conversion of guardrails to hooks, we do this check.
   if (Object.keys(inheritedConfig).length === 0) {
+    // Mark that an upstream attempt is being made (vs. a gateway-side
+    // rejection like 404/401/rateLimiter 429). requestLogger reads this to
+    // decide error_type. For the multi-deployment failover loop, this is
+    // overwritten with the actual attempt index after each call returns.
+    c.set('attemptIndex', 0);
+
     if (currentTarget.defaultInputGuardrails) {
       currentInheritedConfig.defaultInputGuardrails = [
         ...convertHooksShorthand(

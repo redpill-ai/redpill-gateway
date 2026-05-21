@@ -4,8 +4,21 @@ import { RequestLogQueue } from '../../services/requestLogQueue';
 import { RequestLogErrorType, RequestLogRow } from '../../db/clickhouse';
 import { VirtualKeyContext } from '../virtualKeyValidator';
 
-export function statusToErrorType(status: number): RequestLogErrorType {
+/**
+ * Map status_code → error_type.
+ *
+ * `hadUpstreamAttempt=false` means the request was rejected by the gateway
+ * itself (virtualKeyValidator 404/401, rateLimiter 429, etc.) before any
+ * upstream provider was tried — so the 4xx/5xx should NOT be attributed
+ * to upstream. Callers in handlerUtils always have an upstream attempt by
+ * the time they call this, so the default is true for backward compat.
+ */
+export function statusToErrorType(
+  status: number,
+  hadUpstreamAttempt: boolean = true
+): RequestLogErrorType {
   if (status >= 200 && status < 300) return '';
+  if (!hadUpstreamAttempt) return 'gateway';
   if (status === 429) return 'rate_limit';
   if (status === 408 || status === 504) return 'timeout';
   if (status >= 400 && status < 500) return 'upstream_4xx';
@@ -30,7 +43,13 @@ export const requestLogger = () => {
     const endpoint = new URL(c.req.url).pathname;
     const status = c.res.status;
     const ctx = c.get('virtualKeyContext') as VirtualKeyContext | undefined;
-    const attemptIndex = (c.get('attemptIndex') as number | undefined) ?? 0;
+    // attemptIndex is set by tryWithDeploymentFailover after each attempt;
+    // if it's never set, the request was rejected by the gateway before
+    // reaching any upstream provider.
+    const attemptIndexRaw = c.get('attemptIndex') as number | undefined;
+    const hadUpstreamAttempt = attemptIndexRaw !== undefined;
+    const attemptIndex = attemptIndexRaw ?? 0;
+    const requestedModel = c.get('requestedModel') as string | undefined;
 
     const contentType = c.res.headers.get('content-type') || '';
     const isStreaming = contentType.includes('text/event-stream');
@@ -42,13 +61,13 @@ export const requestLogger = () => {
         request_id: requestId,
         timestamp: formatTimestamp(new Date(start)),
         endpoint,
-        model: ctx?.originalModel ?? '',
+        model: ctx?.originalModel ?? requestedModel ?? '',
         provider: ctx?.providerConfig?.provider ?? '',
         model_deployment_id: ctx?.modelDeploymentId ?? 0,
         deployment_name: ctx?.deploymentName ?? '',
         attempt_index: attemptIndex,
         status_code: status,
-        error_type: statusToErrorType(status),
+        error_type: statusToErrorType(status, hadUpstreamAttempt),
         error_message: '',
         duration_ms: durationMs,
         ttft_ms: ttftMs,

@@ -297,6 +297,11 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
       modelName = c.req.query('model') || '';
     }
 
+    // Stash the requested model so requestLogger can populate request_logs.model
+    // even when validation fails before VirtualKeyContext is built (e.g. unknown
+    // model, invalid API key).
+    c.set('requestedModel', modelName);
+
     if (!modelName) {
       throw new VirtualKeyValidationError('Model parameter is required', 400);
     }
