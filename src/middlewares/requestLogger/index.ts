@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { RequestLogQueue } from '../../services/requestLogQueue';
 import { RequestLogErrorType, RequestLogRow } from '../../db/clickhouse';
 import { VirtualKeyContext } from '../virtualKeyValidator';
+import { Usage } from '../spendLog';
 
 /**
  * Map status_code → error_type.
@@ -57,6 +58,15 @@ export const requestLogger = () => {
     let ttftMs = 0;
 
     const emit = (durationMs: number) => {
+      // Usage is published by spendLogger after it extracts from response
+      // body (non-streaming JSON) or the stream's final usage chunk. For
+      // non-streaming, spendLogger.after runs before us. For streaming,
+      // spendLogger's inner TransformStream flushes first.
+      const usage = c.get('extractedUsage') as Usage | undefined;
+      const inputTokens = usage?.input_tokens ?? usage?.prompt_tokens ?? 0;
+      const outputTokens =
+        usage?.output_tokens ?? usage?.completion_tokens ?? 0;
+
       const row: RequestLogRow = {
         request_id: requestId,
         timestamp: formatTimestamp(new Date(start)),
@@ -71,8 +81,8 @@ export const requestLogger = () => {
         error_message: '',
         duration_ms: durationMs,
         ttft_ms: ttftMs,
-        input_tokens: 0,
-        output_tokens: 0,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
         user_id: ctx?.virtualKeyWithUser?.user?.id ?? 0,
         virtual_key_id: ctx?.virtualKeyWithUser?.id ?? 0,
         is_streaming: isStreaming ? 1 : 0,

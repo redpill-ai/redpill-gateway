@@ -2,7 +2,7 @@ import { Context } from 'hono';
 import { SpendQueue } from '../../services/spendQueue';
 import { VirtualKeyContext } from '../virtualKeyValidator/index';
 
-interface Usage {
+export interface Usage {
   input_tokens?: number;
   output_tokens?: number;
   prompt_tokens?: number;
@@ -151,6 +151,9 @@ export const spendLogger = () => {
           flush() {
             // Log spend data when stream ends
             if (streamUsage) {
+              // Share the extracted usage with requestLogger (outer middleware
+              // wraps this stream, so its flush fires after this one).
+              c.set('extractedUsage', streamUsage);
               processSpendData({
                 time: new Date().toISOString(),
                 method,
@@ -182,6 +185,9 @@ export const spendLogger = () => {
 
         const usage = extractUsageFromResponse(responseData);
         if (usage) {
+          // Share the extracted usage with requestLogger (outer middleware
+          // runs its after-section right after this one).
+          c.set('extractedUsage', usage);
           processSpendData({
             time: new Date().toISOString(),
             method,
