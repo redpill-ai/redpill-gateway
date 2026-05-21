@@ -55,8 +55,6 @@ export type RequestLogErrorType =
   | 'rate_limit'
   | 'upstream_5xx'
   | 'upstream_4xx'
-  | 'connection'
-  | 'cancelled'
   | 'gateway';
 
 export interface RequestLogRow {
