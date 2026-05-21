@@ -17,6 +17,7 @@ import { requestValidator } from './middlewares/requestValidator';
 import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
 import { spendLogger } from './middlewares/spendLog';
+import { requestLogger } from './middlewares/requestLogger';
 import { virtualKeyValidator } from './middlewares/virtualKeyValidator';
 import { rateLimiter } from './middlewares/rateLimiter';
 
@@ -109,6 +110,10 @@ app.use('*', hooks);
 if (conf.cache === true) {
   app.use('*', memoryCache());
 }
+
+// Use request logger middleware (captures status/latency/TTFT for ALL requests).
+// Registered before spendLogger so the wall-clock spans the full pipeline.
+app.use('*', requestLogger());
 
 // Use spend logger middleware for all routes
 app.use('*', spendLogger());

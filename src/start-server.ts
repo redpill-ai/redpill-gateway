@@ -9,6 +9,12 @@ import { requestValidator } from './middlewares/requestValidator';
 import { closePostgresPool } from './db/postgres/connection';
 import { closeRedisClient } from './db/redis';
 import { SpendQueue } from './services/spendQueue';
+import { RequestLogQueue } from './services/requestLogQueue';
+// MetricsAggregator is ON ICE during data-collection phase. Uncomment
+// the import + start/stop calls below once we decide to enable
+// metric-driven routing (see virtualKeyValidator for the matching
+// switch-on instructions).
+// import { MetricsAggregator } from './services/metricsAggregator';
 
 // Extract the port number from the command line arguments
 const defaultPort = 8787;
@@ -42,6 +48,12 @@ console.log('   ' + '\x1b[1;4;32m%s\x1b[0m', `${url}`);
 // Start the spend queue processor
 SpendQueue.getInstance().startSpendProcessor();
 
+// Start the request log queue processor (per-request observability sink)
+RequestLogQueue.getInstance().startProcessor();
+
+// Start the 24h metrics aggregator (ClickHouse → Redis, every 10 min)
+// MetricsAggregator.getInstance().start();
+
 // Ready message
 console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
 
@@ -49,6 +61,8 @@ console.log('\n\x1b[32m✨ Ready for connections!\x1b[0m');
 async function gracefulShutdown() {
   try {
     SpendQueue.getInstance().stopSpendProcessor();
+    RequestLogQueue.getInstance().stopProcessor();
+    // MetricsAggregator.getInstance().stop();
     await Promise.all([closePostgresPool(), closeRedisClient()]);
   } catch (error) {
     console.error(error);
