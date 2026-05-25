@@ -1,10 +1,10 @@
 /**
  * Metric-driven deployment ranking (read side of MetricsAggregator).
  *
- * Status: ON ICE during the data-collection phase. virtualKeyValidator
- * currently does uniform random pick instead of calling rankDeployments.
- * Exported symbols are kept so tests stay meaningful and the switch-on
- * path is short.
+ * Combines UX score (4-dim, computed by metricsAggregator and stored in
+ * Redis) with margin score (computed here from deployment.config and
+ * deployment.model_specs which are already in memory) into a final score
+ * for tier-internal weighted random / sort.
  */
 import { type ModelDeployment } from '../db/postgres/model';
 import { getRedisClient } from '../db/redis';
@@ -15,6 +15,42 @@ import {
 } from './metricsAggregator';
 
 const CACHE_TTL_MS = 30 * 1000;
+
+// Routing-time blend of UX score (from Redis) and margin (from deployment
+// data). UX dimensions sum to 80%, margin is 20%. Margin acts as a tiebreaker
+// when UX is similar; when UX leader is clear, UX still dominates. No hard
+// gate — keep the function continuous so admin price changes shift routing
+// smoothly. If admin wants to definitively exclude a provider they should
+// `deployments deactivate` it, not rely on the algorithm to do so implicitly.
+const W_MARGIN = 0.2;
+const W_UX = 1 - W_MARGIN;
+
+export function marginScore(d: ModelDeployment): number {
+  const specs = (d.model_specs ?? {}) as {
+    input_cost_per_token?: string | number | null;
+  };
+  const config = (d.config ?? {}) as {
+    input_cost_per_token?: string | number | null;
+  };
+  const sellRaw = specs.input_cost_per_token;
+  const costRaw = config.input_cost_per_token;
+  if (sellRaw == null || sellRaw === '' || costRaw == null || costRaw === '') {
+    // Unknown margin → neutral. Don't penalize for missing data; admin can
+    // fix the data without the algorithm punishing them in the meantime.
+    return 0.5;
+  }
+  const sell = Number(sellRaw);
+  const cost = Number(costRaw);
+  if (!Number.isFinite(sell) || !Number.isFinite(cost) || cost === 0) {
+    return 0.5;
+  }
+  const margin = (sell - cost) / cost;
+  return Math.min(1, Math.max(0, (margin + 0.3) / 0.6));
+}
+
+export function finalScore(d: ModelDeployment, uxScore: number): number {
+  return W_UX * uxScore + W_MARGIN * marginScore(d);
+}
 
 type CacheEntry = {
   value: Map<number, DeploymentMetrics>;
@@ -84,10 +120,11 @@ export function rankDeployments(
 
   const decorated: Decorated[] = deployments.map((d) => {
     const m = metrics.get(d.id);
+    const uxScore = m?.score ?? 0;
     return {
       d,
       tier: m?.tier ?? 'INSUFFICIENT_DATA',
-      score: m?.score ?? 0,
+      score: finalScore(d, uxScore),
       weight: d.config?.weight ?? 1,
     };
   });

@@ -1,10 +1,8 @@
 /**
- * 24h request_logs → Redis aggregator that produces tier/score per
- * deployment for metric-driven routing.
- *
- * Status: ON ICE during the data-collection phase. start-server.ts does
- * NOT call .start() yet; virtualKeyValidator uses uniform random pick.
- * To enable: see the comment block in virtualKeyValidator/index.ts.
+ * 6h request_logs → Redis aggregator producing tier + UX score per deployment
+ * for metric-driven routing. Refresh every 5 min. Margin is NOT computed here;
+ * providerRanking blends it in at routing time using deployment.model_specs
+ * and deployment.config (both available in-memory on every request).
  */
 import { getClickHouseClient } from '../db/clickhouse';
 import { buildCacheKey, getRedisClient } from '../db/redis';
@@ -13,13 +11,24 @@ const GOOD_THRESHOLD = 0.95;
 const DEGRADED_THRESHOLD = 0.8;
 const MIN_SAMPLE = 100;
 
-const W_UPTIME = 0.5;
-const W_LATENCY = 0.3;
+// 4-dim UX score weights (sum = 1). Margin is added in providerRanking with
+// W_MARGIN=0.20, so these UX dims effectively contribute 80% of final score.
+const W_UPTIME = 0.3;
+const W_TTFT = 0.25;
+const W_LATENCY = 0.25;
 const W_TPS = 0.2;
 
-const LATENCY_BEST_MS = 200;
-const LATENCY_WORST_MS = 5000;
-const TPS_TARGET = 100;
+// Calibrated for thinking models (multi-provider models we route today are
+// all thinking-class: GLM 5.1, deepseek-v3.2, etc., p50 latency 5-15s,
+// p50 TTFT 0.5-3s, avg TPS 20-50). Sub-500ms TTFT and sub-5s latency saturate
+// at 1.0 — chat/embedding deployments hit this ceiling and lose differentiation
+// on these dims, but uptime + margin still rank them. Revisit when we add a
+// multi-provider chat model.
+const TTFT_BEST_MS = 500;
+const TTFT_WORST_MS = 5000;
+const LATENCY_BEST_MS = 5000;
+const LATENCY_WORST_MS = 30000;
+const TPS_TARGET = 50;
 
 export type DeploymentTier =
   | 'GOOD'
@@ -29,6 +38,8 @@ export type DeploymentTier =
 
 export interface DeploymentMetrics {
   tier: DeploymentTier;
+  // UX-only score (4-dim weighted: uptime/ttft/latency/tps). Margin is
+  // combined at routing time in providerRanking — not stored here.
   score: number;
   uptime: number | null;
   p50_latency_ms: number;
@@ -67,26 +78,35 @@ export function tierFromUptime(
 
 export function computeScore(
   uptime: number | null,
-  p50ms: number,
+  p50LatencyMs: number,
+  p50TtftMs: number,
   tps: number
 ): number {
   if (uptime == null) return 0;
+  const ttft = Math.max(
+    0,
+    Math.min(1, 1 - (p50TtftMs - TTFT_BEST_MS) / (TTFT_WORST_MS - TTFT_BEST_MS))
+  );
   const lat = Math.max(
     0,
-    1 - (p50ms - LATENCY_BEST_MS) / (LATENCY_WORST_MS - LATENCY_BEST_MS)
+    Math.min(
+      1,
+      1 -
+        (p50LatencyMs - LATENCY_BEST_MS) / (LATENCY_WORST_MS - LATENCY_BEST_MS)
+    )
   );
   const t = Math.min(1, Math.max(0, tps / TPS_TARGET));
-  return W_UPTIME * uptime + W_LATENCY * lat + W_TPS * t;
+  return W_UPTIME * uptime + W_TTFT * ttft + W_LATENCY * lat + W_TPS * t;
 }
 
 export function metricsKey(model: string): string {
-  return buildCacheKey('metrics', '24h', model);
+  return buildCacheKey('metrics', '6h', model);
 }
 
 export class MetricsAggregator {
   private static instance: MetricsAggregator;
   private readonly LOCK_KEY = buildCacheKey('metrics', 'agg-lock');
-  private readonly LOCK_TTL = 720; // seconds, > refresh interval
+  private readonly LOCK_TTL = 360; // seconds, > 5min refresh interval
   private readonly RESULT_TTL = 7200; // 2h safety net
   private interval: NodeJS.Timeout | null = null;
 
@@ -123,10 +143,10 @@ export class MetricsAggregator {
             countIf(error_type IN ('upstream_5xx','timeout')) AS server_errors,
             quantile(0.5)(duration_ms) AS p50_latency_ms,
             quantile(0.95)(duration_ms) AS p95_latency_ms,
-            quantile(0.5)(ttft_ms) AS p50_ttft_ms,
+            quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0) AS p50_ttft_ms,
             avg(if(tokens_per_second > 0, tokens_per_second, NULL)) AS avg_tps
           FROM request_logs
-          WHERE timestamp >= now() - INTERVAL 24 HOUR
+          WHERE timestamp >= now() - INTERVAL 6 HOUR
           GROUP BY model, model_deployment_id, provider
         `,
         format: 'JSONEachRow',
@@ -147,8 +167,13 @@ export class MetricsAggregator {
 
         const uptime =
           uptimeDen >= MIN_SAMPLE ? successCount / uptimeDen : null;
-        const tier = tierFromUptime(uptime, total);
-        const score = computeScore(uptime, p50, avgTps);
+        // Pass uptimeDen (excludes 4xx user errors) as sample — matches the
+        // uptime formula's denominator. Functionally equivalent to `total`
+        // today because the uptime==null guard in tierFromUptime already
+        // gates INSUFFICIENT_DATA when uptimeDen<MIN_SAMPLE, but stating
+        // intent clearly prevents regression if that guard changes.
+        const tier = tierFromUptime(uptime, uptimeDen);
+        const score = computeScore(uptime, p50, p50Ttft, avgTps);
 
         const metrics: DeploymentMetrics = {
           tier,
@@ -189,7 +214,7 @@ export class MetricsAggregator {
     }
   }
 
-  start(intervalMs = 10 * 60 * 1000): void {
+  start(intervalMs = 5 * 60 * 1000): void {
     if (this.interval) {
       console.log('[METRICS_AGG] already started');
       return;

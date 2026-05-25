@@ -5,12 +5,10 @@ import {
 } from '../../db/postgres/virtualKey';
 import { type ModelDeployment } from '../../db/postgres/model';
 import { ModelService } from '../../services/modelService';
-// Metric-driven ordering imports — kept commented during data-collection
-// phase. See createVirtualKeyContext below for the matching usage block.
-// import {
-//   getMetricsForModel,
-//   rankDeployments,
-// } from '../../services/providerRanking';
+import {
+  getMetricsForModel,
+  rankDeployments,
+} from '../../services/providerRanking';
 import { env } from '../../constants';
 import { hash } from '../../utils/hash';
 
@@ -85,32 +83,17 @@ const createVirtualKeyContext = async (
     );
   }
 
-  // Data-collection phase: uniform random pick so every deployment of a
-  // multi-provider model gets a comparable per-request sample. Failover
-  // (handlerUtils.tryWithDeploymentFailover) walks deploymentsForCtx in
-  // order, so we put the chosen primary first and keep the rest in DB
-  // insertion order.
-  //
-  // To enable metric-driven ordering after observing 24h of data:
-  //   1. Uncomment the providerRanking imports above.
-  //   2. Replace the block below with:
-  //        let rankedDeployments = allDeployments;
-  //        if (allDeployments.length > 1) {
-  //          const metrics = await getMetricsForModel(modelName);
-  //          rankedDeployments = rankDeployments(allDeployments, metrics);
-  //        }
-  //        const deployment = rankedDeployments[0];
-  //        const deploymentsForCtx = rankedDeployments;
-  //   3. Start MetricsAggregator in start-server.ts.
+  // Metric-driven primary selection: rankDeployments uses MetricsAggregator's
+  // 6h Redis state (UX score) blended with margin computed from each
+  // deployment's config + model_specs. When metrics are absent (fresh deploy,
+  // cleared Redis) deployments fall to INSUFFICIENT_DATA tier and routing
+  // degrades gracefully to config.weight-based weighted random.
   let deployment: ModelDeployment;
   let deploymentsForCtx = allDeployments;
   if (allDeployments.length > 1) {
-    const idx = Math.floor(Math.random() * allDeployments.length);
-    deployment = allDeployments[idx];
-    deploymentsForCtx = [
-      deployment,
-      ...allDeployments.filter((_, i) => i !== idx),
-    ];
+    const metrics = await getMetricsForModel(modelName);
+    deploymentsForCtx = rankDeployments(allDeployments, metrics);
+    deployment = deploymentsForCtx[0];
   } else {
     deployment = allDeployments[0];
   }
