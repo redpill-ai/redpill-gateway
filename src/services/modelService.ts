@@ -192,9 +192,21 @@ export class ModelService {
         output_modalities: specs.output_modalities,
         context_length: specs.context_length,
         max_output_length: specs.max_output_tokens || specs.context_length,
+        // Customer-facing price: prefer model.specs sell price (single price
+        // across providers); fall back to the first deployment's upstream
+        // cost when sell price is absent/null/empty-string. Matches the
+        // billing-side check in virtualKeyValidator so listing and bill agree.
         pricing: {
-          prompt: config.input_cost_per_token,
-          completion: config.output_cost_per_token,
+          prompt:
+            specs.input_cost_per_token != null &&
+            specs.input_cost_per_token !== ''
+              ? specs.input_cost_per_token
+              : config.input_cost_per_token,
+          completion:
+            specs.output_cost_per_token != null &&
+            specs.output_cost_per_token !== ''
+              ? specs.output_cost_per_token
+              : config.output_cost_per_token,
         },
         supported_parameters: specs.supported_parameters,
         providers:

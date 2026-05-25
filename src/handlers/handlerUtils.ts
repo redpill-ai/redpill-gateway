@@ -1430,10 +1430,10 @@ export function updateVirtualKeyContextForDeployment(
   };
   ctx.deploymentName = deployment.deployment_name;
   ctx.modelDeploymentId = deployment.id;
-  ctx.pricing = {
-    inputCostPerToken: deployment.config.input_cost_per_token || 0,
-    outputCostPerToken: deployment.config.output_cost_per_token || 0,
-  };
+  // Intentionally NOT updating ctx.pricing: the customer-facing sell price
+  // is a per-model constant (from models.specs), set once in
+  // virtualKeyValidator. Failover changes WHICH provider serves the request
+  // but not what the customer pays.
 }
 
 export interface DeploymentFailoverOptions {

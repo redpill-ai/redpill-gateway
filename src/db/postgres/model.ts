@@ -21,6 +21,9 @@ export const ModelDeploymentSchema = z.object({
   active: z.boolean(),
   created_at: z.coerce.date(),
   updated_at: z.coerce.date(),
+  // Denormalized from the joined models row so callers (virtualKeyValidator)
+  // can read the customer-facing sell price without a second query.
+  model_specs: z.any().nullable().optional(),
 });
 
 export const ModelAliasSchema = z.object({
@@ -131,7 +134,7 @@ export async function getModelDeployments(
   modelNameOrAlias: string
 ): Promise<ModelDeployment[]> {
   const deployments = await queryPostgres<unknown>(
-    `SELECT DISTINCT md.* FROM model_deployments md
+    `SELECT DISTINCT md.*, m.specs AS model_specs FROM model_deployments md
      JOIN models m ON md.model_id = m.id
      LEFT JOIN model_aliases ma ON m.id = ma.model_id
      WHERE (m.model_id = $1 OR ma.alias = $1)

@@ -122,6 +122,27 @@ const createVirtualKeyContext = async (
     requestHash = hash(rawBody);
   }
 
+  // Sell price for spend_logs: prefer `model.specs.input/output_cost_per_token`
+  // (denormalized onto the deployment row via JOIN — single price per model,
+  // independent of which provider serves the request). Fall back to the
+  // deployment's upstream cost when sell price is absent/null/empty-string,
+  // so behavior is unchanged before sell prices are populated.
+  // Keep strings as strings — spendQueue wraps in `new Decimal(...)`.
+  const sellSpec = (deployment.model_specs ?? {}) as {
+    input_cost_per_token?: string | number;
+    output_cost_per_token?: string | number;
+  };
+  const sellIn = sellSpec.input_cost_per_token;
+  const sellOut = sellSpec.output_cost_per_token;
+  const inputCostPerToken =
+    sellIn != null && sellIn !== ''
+      ? sellIn
+      : deployment.config.input_cost_per_token || 0;
+  const outputCostPerToken =
+    sellOut != null && sellOut !== ''
+      ? sellOut
+      : deployment.config.output_cost_per_token || 0;
+
   return {
     virtualKeyWithUser,
     providerConfig: {
@@ -133,8 +154,8 @@ const createVirtualKeyContext = async (
     modelDeploymentId: deployment.id,
     originalModel: modelName,
     pricing: {
-      inputCostPerToken: deployment.config.input_cost_per_token || 0,
-      outputCostPerToken: deployment.config.output_cost_per_token || 0,
+      inputCostPerToken,
+      outputCostPerToken,
     },
     requestHash,
     spendMode,
