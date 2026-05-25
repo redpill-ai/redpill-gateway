@@ -100,7 +100,7 @@ export const cacheRefreshHandler = async (c: Context) => {
 
     return c.json({
       success: true,
-      cleared: ['models:*', 'model-deployment:*', 'embedding-models:*'],
+      cleared: ['models:*', 'model_deployment:*', 'embedding_models:*'],
     });
   } catch (error) {
     console.error('Cache refresh error:', error);

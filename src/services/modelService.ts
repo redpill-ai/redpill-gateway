@@ -83,7 +83,7 @@ export class ModelService {
   }
 
   async getAllEmbeddingModels(): Promise<z.infer<typeof ModelSchema>[]> {
-    const cacheKey = buildCacheKey('embedding-models', 'all');
+    const cacheKey = buildCacheKey('embedding_models', 'all');
     const cached = await getCache(cacheKey);
     if (cached) return cached;
 
@@ -98,7 +98,7 @@ export class ModelService {
   async getEmbeddingModelsByProvider(
     provider: string
   ): Promise<z.infer<typeof ModelSchema>[]> {
-    const cacheKey = buildCacheKey('embedding-models', provider);
+    const cacheKey = buildCacheKey('embedding_models', provider);
     const cached = await getCache(cacheKey);
     if (cached) return cached;
 
@@ -267,7 +267,7 @@ export class ModelService {
   private async getCachedDeployments(
     modelNameOrAlias: string
   ): Promise<ModelDeployment[] | null> {
-    const cacheKey = buildCacheKey('model-deployment', modelNameOrAlias);
+    const cacheKey = buildCacheKey('model_deployment', modelNameOrAlias);
     const cached = await getCache(cacheKey);
 
     if (Array.isArray(cached)) {
@@ -336,8 +336,8 @@ export class ModelService {
   async clearCache(): Promise<void> {
     try {
       await clearCacheByPattern(buildCacheKey('models', '*'));
-      await clearCacheByPattern(buildCacheKey('model-deployment', '*'));
-      await clearCacheByPattern(buildCacheKey('embedding-models', '*'));
+      await clearCacheByPattern(buildCacheKey('model_deployment', '*'));
+      await clearCacheByPattern(buildCacheKey('embedding_models', '*'));
     } catch (error) {
       console.error('Failed to clear model cache:', error);
     }

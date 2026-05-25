@@ -105,7 +105,7 @@ export function metricsKey(model: string): string {
 
 export class MetricsAggregator {
   private static instance: MetricsAggregator;
-  private readonly LOCK_KEY = buildCacheKey('metrics', 'agg-lock');
+  private readonly LOCK_KEY = buildCacheKey('metrics', 'lock');
   private readonly LOCK_TTL = 360; // seconds, > 5min refresh interval
   private readonly RESULT_TTL = 7200; // 2h safety net
   private interval: NodeJS.Timeout | null = null;
