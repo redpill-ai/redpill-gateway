@@ -1,4 +1,5 @@
 import { Context } from 'hono';
+import Decimal from 'decimal.js';
 import { SpendQueue } from '../../services/spendQueue';
 import { VirtualKeyContext } from '../virtualKeyValidator/index';
 
@@ -27,25 +28,19 @@ function extractUsageFromResponse(responseData: any): Usage | null {
   return responseData.usage || null;
 }
 
-function extractUsageFromStreamChunk(chunkText: string): Usage | null {
-  try {
-    // Skip non-data lines
-    if (!chunkText.startsWith('data: ')) {
-      return null;
-    }
-
-    const dataText = chunkText.slice(6).trim(); // Remove 'data: ' prefix
-
-    // Skip [DONE] marker
-    if (dataText === '[DONE]') {
-      return null;
-    }
-
-    const chunkData = JSON.parse(dataText);
-    return chunkData.usage || null;
-  } catch (error) {
-    return null;
-  }
+// Mirrors the cost formula in SpendQueue.processSpendQueue. Always returns a
+// number so the response shape stays stable for clients — when pricing is in
+// scope, `usage.cost` is always present (0 is a valid value, not a signal).
+function computeCost(
+  usage: Usage,
+  pricing: VirtualKeyContext['pricing']
+): number {
+  const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? 0;
+  const outputTokens = usage.output_tokens ?? usage.completion_tokens ?? 0;
+  return new Decimal(inputTokens)
+    .mul(new Decimal(pricing.inputCostPerToken))
+    .add(new Decimal(outputTokens).mul(new Decimal(pricing.outputCostPerToken)))
+    .toNumber();
 }
 
 async function processSpendData(spendData: RequestSpendData): Promise<void> {
@@ -107,6 +102,7 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
 
 export const spendLogger = () => {
   const textDecoder = new TextDecoder();
+  const textEncoder = new TextEncoder();
 
   return async (c: Context, next: any) => {
     const start = Date.now();
@@ -128,24 +124,45 @@ export const spendLogger = () => {
       if (contentType.includes('text/event-stream')) {
         let streamUsage: Usage | null = null;
 
-        // Create a transform stream to intercept and parse chunks
+        // Intercept SSE chunks: splice usage.cost into the final usage
+        // payload; pass everything else through byte-for-byte.
         const transformStream = new TransformStream({
           transform(chunk, controller) {
-            // Pass through the chunk unchanged
-            controller.enqueue(chunk);
-
-            // Try to extract usage from this chunk
-            // Always update to the latest usage (not just the first one)
-            // because providers may emit usage on every chunk, with only the final one being accurate
             const chunkText = textDecoder.decode(chunk);
             const lines = chunkText.split('\n');
 
-            for (const line of lines) {
-              const usage = extractUsageFromStreamChunk(line);
-              if (usage) {
-                streamUsage = usage;
+            let rewritten = false;
+            const outLines = lines.map((line) => {
+              if (!line.startsWith('data: ')) return line;
+              const dataText = line.slice(6).trim();
+              if (dataText === '[DONE]') return line;
+
+              let parsed: any;
+              try {
+                parsed = JSON.parse(dataText);
+              } catch {
+                // Likely a chunk-boundary-split JSON payload — emit unchanged.
+                return line;
               }
-            }
+              if (!parsed?.usage) return line;
+
+              // Set streamUsage before any potential rewrite so the audit
+              // trail in flush() sees the upstream value, not our derived cost.
+              streamUsage = parsed.usage;
+
+              if (!virtualKeyContext?.pricing) return line;
+
+              const cost = computeCost(parsed.usage, virtualKeyContext.pricing);
+              rewritten = true;
+              return `data: ${JSON.stringify({
+                ...parsed,
+                usage: { ...parsed.usage, cost },
+              })}`;
+            });
+
+            controller.enqueue(
+              rewritten ? textEncoder.encode(outLines.join('\n')) : chunk
+            );
           },
 
           flush() {
@@ -181,7 +198,7 @@ export const spendLogger = () => {
       // Handle regular JSON responses
       else if (contentType.includes('application/json')) {
         const responseClone = c.res.clone();
-        const responseData = await responseClone.json();
+        const responseData: any = await responseClone.json();
 
         const usage = extractUsageFromResponse(responseData);
         if (usage) {
@@ -197,6 +214,25 @@ export const spendLogger = () => {
             usage,
             virtualKeyContext,
           });
+
+          if (virtualKeyContext?.pricing) {
+            const cost = computeCost(usage, virtualKeyContext.pricing);
+            // Replace, don't mutate — `usage` is the same object reference
+            // held by `extractedUsage` on the Hono context.
+            responseData.usage = { ...responseData.usage, cost };
+            // Hono's c.res setter copies the *old* response's headers onto
+            // the new one (except content-type). The rewritten body is a
+            // different length, so the stale content-length must be
+            // stripped from the old headers before assignment — otherwise
+            // it overrides the value the runtime would compute and the
+            // client sees a truncated response.
+            c.res.headers.delete('content-length');
+            c.res = new Response(JSON.stringify(responseData), {
+              status: c.res.status,
+              statusText: c.res.statusText,
+              headers: c.res.headers,
+            });
+          }
         }
       }
     } catch (error: unknown) {

@@ -179,6 +179,7 @@ export interface CResponse extends BaseResponse {
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
     num_search_queries?: number;
+    cost?: number;
   };
 }
 
