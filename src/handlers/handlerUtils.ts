@@ -1405,6 +1405,8 @@ function enqueueFailedAttempt(
       ttft_ms: 0,
       input_tokens: 0,
       output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
       user_id: ctx?.virtualKeyWithUser?.user?.id ?? 0,
       virtual_key_id: ctx?.virtualKeyWithUser?.id ?? 0,
       is_streaming: 0,

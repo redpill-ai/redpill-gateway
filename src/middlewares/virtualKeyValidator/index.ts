@@ -39,8 +39,14 @@ export interface VirtualKeyContext {
   // Written to request_logs.request_model / spend_logs.request_model.
   requestModel: string;
   pricing: {
-    inputCostPerToken: number;
-    outputCostPerToken: number;
+    inputCostPerToken: number | string;
+    outputCostPerToken: number | string;
+    // Per-token sell price for prompt-cache reads / writes. `null` means
+    // the model doesn't advertise cache-tier pricing — cache tokens fall
+    // back to the regular input rate in computeCost (i.e. customer is
+    // charged as if cache hadn't been hit).
+    cacheReadCostPerToken: number | string | null;
+    cacheCreationCostPerToken: number | string | null;
   };
   requestHash?: string;
   spendMode: SpendMode;
@@ -127,6 +133,8 @@ const createVirtualKeyContext = async (
   const sellSpec = (deployment.model_specs ?? {}) as {
     input_cost_per_token?: string | number;
     output_cost_per_token?: string | number;
+    cache_read_cost_per_token?: string | number;
+    cache_creation_cost_per_token?: string | number;
   };
   const sellIn = sellSpec.input_cost_per_token;
   const sellOut = sellSpec.output_cost_per_token;
@@ -138,6 +146,20 @@ const createVirtualKeyContext = async (
     sellOut != null && sellOut !== ''
       ? sellOut
       : deployment.config.output_cost_per_token || 0;
+
+  // Cache-tier sell prices: same precedence as input/output (sell → cost →
+  // default), but default is `null` so computeCost treats absence as "no
+  // cache pricing → bill cache tokens at input rate".
+  const sellCacheRead = sellSpec.cache_read_cost_per_token;
+  const sellCacheCreate = sellSpec.cache_creation_cost_per_token;
+  const cacheReadCostPerToken =
+    sellCacheRead != null && sellCacheRead !== ''
+      ? sellCacheRead
+      : deployment.config.cache_read_cost_per_token || null;
+  const cacheCreationCostPerToken =
+    sellCacheCreate != null && sellCacheCreate !== ''
+      ? sellCacheCreate
+      : deployment.config.cache_creation_cost_per_token || null;
 
   return {
     virtualKeyWithUser,
@@ -153,6 +175,8 @@ const createVirtualKeyContext = async (
     pricing: {
       inputCostPerToken,
       outputCostPerToken,
+      cacheReadCostPerToken,
+      cacheCreationCostPerToken,
     },
     requestHash,
     spendMode,

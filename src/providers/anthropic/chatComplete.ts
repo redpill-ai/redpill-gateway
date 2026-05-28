@@ -577,7 +577,15 @@ export const AnthropicChatCompleteResponseTransform: (
         },
       ],
       usage: {
-        prompt_tokens: input_tokens,
+        // OpenAI semantics: prompt_tokens is the TOTAL input including any
+        // cached/created portions. Anthropic's raw input_tokens excludes the
+        // cache buckets (it's only tokens after the last cache breakpoint), so
+        // we add the buckets back to align with how downstream consumers and
+        // the materialized spend_logs.input_cost formula expect prompt_tokens.
+        prompt_tokens:
+          input_tokens +
+          (cache_creation_input_tokens ?? 0) +
+          (cache_read_input_tokens ?? 0),
         completion_tokens: output_tokens,
         total_tokens:
           input_tokens +
@@ -657,7 +665,12 @@ export const AnthropicChatCompleteStreamChunkTransform: (
   if (parsedChunk.type === 'message_start' && parsedChunk.message?.usage) {
     streamState.model = parsedChunk?.message?.model ?? '';
     streamState.usage = {
-      prompt_tokens: parsedChunk.message?.usage?.input_tokens,
+      // OpenAI semantics — see AnthropicChatCompleteResponseTransform for the
+      // same rationale: prompt_tokens is TOTAL input including cache buckets.
+      prompt_tokens:
+        (parsedChunk.message.usage.input_tokens ?? 0) +
+        (parsedChunk.message.usage.cache_read_input_tokens ?? 0) +
+        (parsedChunk.message.usage.cache_creation_input_tokens ?? 0),
       ...(shouldSendCacheUsage && {
         cache_read_input_tokens:
           parsedChunk.message?.usage?.cache_read_input_tokens,
@@ -688,10 +701,10 @@ export const AnthropicChatCompleteStreamChunkTransform: (
 
   // final chunk
   if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
+    // prompt_tokens now already includes cache_read + cache_creation
+    // (set in message_start above), so total = prompt + output.
     const totalTokens =
       (streamState?.usage?.prompt_tokens ?? 0) +
-      (streamState?.usage?.cache_creation_input_tokens ?? 0) +
-      (streamState?.usage?.cache_read_input_tokens ?? 0) +
       (parsedChunk.usage.output_tokens ?? 0);
     return (
       `data: ${JSON.stringify({

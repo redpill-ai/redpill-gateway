@@ -3,6 +3,7 @@ import { updateUserBudgetsBatch } from '../db/postgres/user';
 import { updateVirtualKeyBudgetsBatch } from '../db/postgres/virtualKey';
 import { insertSpendLogs, SpendLogRow } from '../db/clickhouse';
 import { SpendMode } from '../middlewares/virtualKeyValidator';
+import { computeCost, isPriced } from './pricing';
 import Decimal from 'decimal.js';
 import msgpack from 'msgpack5';
 
@@ -13,8 +14,13 @@ interface SpendData {
   status: number;
   duration: number;
   usage: {
+    /** Total prompt tokens (OpenAI semantics — includes the cached subset). */
     input_tokens: number;
     output_tokens: number;
+    /** Cached read tokens. Always present (0 when no cache hit). */
+    cache_read_input_tokens: number;
+    /** Cache write tokens (Anthropic). Always present (0 when not applicable). */
+    cache_creation_input_tokens: number;
   };
   rawUsage: string;
   userId: number;
@@ -26,8 +32,12 @@ interface SpendData {
   requestModel: string;
   modelDeploymentId: number;
   pricing: {
-    inputCostPerToken: number;
-    outputCostPerToken: number;
+    inputCostPerToken: number | string;
+    outputCostPerToken: number | string;
+    /** Null = model doesn't sell cache-tier pricing; cache tokens fall back
+     *  to inputCostPerToken (handled in shared computeCost). */
+    cacheReadCostPerToken: number | string | null;
+    cacheCreationCostPerToken: number | string | null;
   };
   /**
    * Determines how spending is tracked for a request:
@@ -143,17 +153,12 @@ export class SpendQueue {
 
       for (const spendData of spendDataList) {
         try {
-          const inputTokens = spendData.usage.input_tokens || 0;
-          const outputTokens = spendData.usage.output_tokens || 0;
-
-          // Use actual pricing from deployment config
-          const inputCost = new Decimal(inputTokens).mul(
-            new Decimal(spendData.pricing.inputCostPerToken)
+          // Shared cost formula — same one spendLog middleware uses to inject
+          // `usage.cost` into the live response, so client-visible cost matches
+          // what we record. Handles cache buckets, null-price fallback, etc.
+          const cost = new Decimal(
+            computeCost(spendData.usage, spendData.pricing)
           );
-          const outputCost = new Decimal(outputTokens).mul(
-            new Decimal(spendData.pricing.outputCostPerToken)
-          );
-          const cost = inputCost.add(outputCost);
 
           if (cost.isZero()) continue;
 
@@ -171,7 +176,10 @@ export class SpendQueue {
             userSpends.set(spendData.userId, currentUserSpend.add(cost));
           }
 
-          // Prepare ClickHouse log entry (always log regardless of key type)
+          // Prepare ClickHouse log entry (always log regardless of key type).
+          // Cache rates write as-is (or null when unset); the materialized
+          // total_cost coalesces null → input_cost_per_token.
+          const sp = spendData.pricing;
           clickhouseLogs.push({
             timestamp: new Date(spendData.time)
               .toISOString()
@@ -185,13 +193,24 @@ export class SpendQueue {
             model: spendData.model,
             request_model: spendData.requestModel,
             model_deployment_id: spendData.modelDeploymentId,
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
+            input_tokens: spendData.usage.input_tokens,
+            output_tokens: spendData.usage.output_tokens,
+            cache_read_input_tokens: spendData.usage.cache_read_input_tokens,
+            cache_creation_input_tokens:
+              spendData.usage.cache_creation_input_tokens,
             raw_usage: spendData.rawUsage,
             input_cost_per_token:
               spendData.pricing.inputCostPerToken.toString(),
             output_cost_per_token:
               spendData.pricing.outputCostPerToken.toString(),
+            cache_read_cost_per_token: isPriced(sp.cacheReadCostPerToken)
+              ? sp.cacheReadCostPerToken.toString()
+              : null,
+            cache_creation_cost_per_token: isPriced(
+              sp.cacheCreationCostPerToken
+            )
+              ? sp.cacheCreationCostPerToken.toString()
+              : null,
           });
         } catch (error) {
           console.error(

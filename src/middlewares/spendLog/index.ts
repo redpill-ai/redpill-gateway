@@ -1,14 +1,7 @@
 import { Context } from 'hono';
-import Decimal from 'decimal.js';
 import { SpendQueue } from '../../services/spendQueue';
 import { VirtualKeyContext } from '../virtualKeyValidator/index';
-
-export interface Usage {
-  input_tokens?: number;
-  output_tokens?: number;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-}
+import { computeCost, resolveUsage, Usage } from '../../services/pricing';
 
 interface RequestSpendData {
   time: string;
@@ -26,21 +19,6 @@ function extractUsageFromResponse(responseData: any): Usage | null {
   }
 
   return responseData.usage || null;
-}
-
-// Mirrors the cost formula in SpendQueue.processSpendQueue. Always returns a
-// number so the response shape stays stable for clients — when pricing is in
-// scope, `usage.cost` is always present (0 is a valid value, not a signal).
-function computeCost(
-  usage: Usage,
-  pricing: VirtualKeyContext['pricing']
-): number {
-  const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? 0;
-  const outputTokens = usage.output_tokens ?? usage.completion_tokens ?? 0;
-  return new Decimal(inputTokens)
-    .mul(new Decimal(pricing.inputCostPerToken))
-    .add(new Decimal(outputTokens).mul(new Decimal(pricing.outputCostPerToken)))
-    .toNumber();
 }
 
 async function processSpendData(spendData: RequestSpendData): Promise<void> {
@@ -63,6 +41,8 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     spendMode,
   } = virtualKeyContext;
 
+  const resolved = resolveUsage(usage);
+
   const queueData = {
     time: spendData.time,
     method: spendData.method,
@@ -70,8 +50,14 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     status: spendData.status,
     duration: spendData.duration,
     usage: {
-      input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
-      output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+      // Store total input (OpenAI semantics) — matches spend_logs.input_tokens
+      // which is the total prompt tokens including the cached subset; cache
+      // counts go in their own columns and are subtracted by the materialized
+      // input_cost expression.
+      input_tokens: resolved.promptTokens,
+      output_tokens: resolved.completionTokens,
+      cache_read_input_tokens: resolved.cacheReadTokens,
+      cache_creation_input_tokens: resolved.cacheCreationTokens,
     },
     rawUsage: JSON.stringify(usage),
     userId: virtualKeyWithUser.user.id,
@@ -83,8 +69,10 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     requestModel,
     modelDeploymentId: modelDeploymentId,
     pricing: {
-      inputCostPerToken: pricing?.inputCostPerToken || 0,
-      outputCostPerToken: pricing?.outputCostPerToken || 0,
+      inputCostPerToken: pricing?.inputCostPerToken ?? 0,
+      outputCostPerToken: pricing?.outputCostPerToken ?? 0,
+      cacheReadCostPerToken: pricing?.cacheReadCostPerToken ?? null,
+      cacheCreationCostPerToken: pricing?.cacheCreationCostPerToken ?? null,
     },
     spendMode,
   };

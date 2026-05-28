@@ -29,11 +29,22 @@ export interface SpendLogRow {
   /** Raw model string from the client's HTTP body (alias or canonical). */
   request_model: string;
   model_deployment_id: number;
+  /** Total prompt tokens (OpenAI semantics, includes cached subset).
+   *  Materialized input_cost subtracts cache_read + cache_creation here. */
   input_tokens: number;
   output_tokens: number;
+  /** Tokens served from prompt cache. 0 when upstream didn't surface a hit. */
+  cache_read_input_tokens: number;
+  /** Tokens written to prompt cache (Anthropic). 0 elsewhere. */
+  cache_creation_input_tokens: number;
   raw_usage: string;
   input_cost_per_token: string;
   output_cost_per_token: string;
+  /** Per-token cache rates at request time, or null when the model has no
+   *  cache-tier pricing configured. The materialized total_cost coalesces
+   *  null → input_cost_per_token to bill cache tokens at full input rate. */
+  cache_read_cost_per_token: string | null;
+  cache_creation_cost_per_token: string | null;
 }
 
 export async function insertSpendLogs(logs: SpendLogRow[]): Promise<void> {
@@ -81,6 +92,10 @@ export interface RequestLogRow {
   ttft_ms: number;
   input_tokens: number;
   output_tokens: number;
+  /** Tokens served from prompt cache. 0 on failed/non-billable attempts. */
+  cache_read_input_tokens: number;
+  /** Tokens written to prompt cache (Anthropic). 0 elsewhere. */
+  cache_creation_input_tokens: number;
   user_id: number;
   virtual_key_id: number;
   is_streaming: number;

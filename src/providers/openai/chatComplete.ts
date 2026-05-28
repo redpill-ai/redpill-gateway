@@ -1,4 +1,4 @@
-import { ANTHROPIC, OPEN_AI } from '../../globals';
+import { OPEN_AI } from '../../globals';
 import { ContentBlockChunk } from '../../types/requestBody';
 import {
   ChatCompletionResponse,
@@ -166,6 +166,7 @@ export const OpenAIChatCompleteJSONToStreamResponseTransform: (
     completion_tokens,
     cache_read_input_tokens,
     cache_creation_input_tokens,
+    prompt_tokens_details,
     num_search_queries,
   } = response.usage || {};
 
@@ -173,10 +174,14 @@ export const OpenAIChatCompleteJSONToStreamResponseTransform: (
   if (prompt_tokens && completion_tokens)
     total_tokens = prompt_tokens + completion_tokens;
 
-  const shouldSendCacheUsage =
-    provider === ANTHROPIC &&
-    (Number.isInteger(cache_read_input_tokens) ||
-      Number.isInteger(cache_creation_input_tokens));
+  // Normalize OpenAI-style `prompt_tokens_details.cached_tokens` (subset of
+  // prompt_tokens) into the same `cache_read_input_tokens` field Anthropic
+  // emits, so billing + observability code reads a single canonical shape
+  // regardless of upstream family. Truthy gate (matches the non-streaming
+  // Anthropic transform's `||` style) so we don't emit a noise `: 0` field
+  // for the common cached_tokens=0 case.
+  const normalizedCacheRead =
+    cache_read_input_tokens ?? prompt_tokens_details?.cached_tokens;
 
   const streamChunkTemplate: Record<string, any> = {
     id,
@@ -189,10 +194,10 @@ export const OpenAIChatCompleteJSONToStreamResponseTransform: (
       ...(completion_tokens && { completion_tokens }),
       ...(prompt_tokens && { prompt_tokens }),
       ...(total_tokens && { total_tokens }),
-      ...(shouldSendCacheUsage && {
-        cache_read_input_tokens,
-        cache_creation_input_tokens,
+      ...(normalizedCacheRead && {
+        cache_read_input_tokens: normalizedCacheRead,
       }),
+      ...(cache_creation_input_tokens && { cache_creation_input_tokens }),
       ...(num_search_queries && { num_search_queries }),
     },
     ...(citations && { citations }),
