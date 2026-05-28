@@ -32,8 +32,8 @@ const ModelSchema = z.object({
       completion: z.string().default('0'),
       image: z.string().default('0'),
       request: z.string().default('0'),
-      input_cache_read: z.string().default('0'),
-      input_cache_write: z.string().default('0'),
+      input_cache_read: z.string().optional(),
+      input_cache_write: z.string().optional(),
     })
     .default({}),
   supported_parameters: z.array(z.string()).default([]),
@@ -192,22 +192,7 @@ export class ModelService {
         output_modalities: specs.output_modalities,
         context_length: specs.context_length,
         max_output_length: specs.max_output_tokens || specs.context_length,
-        // Customer-facing price: prefer model.specs sell price (single price
-        // across providers); fall back to the first deployment's upstream
-        // cost when sell price is absent/null/empty-string. Matches the
-        // billing-side check in virtualKeyValidator so listing and bill agree.
-        pricing: {
-          prompt:
-            specs.input_cost_per_token != null &&
-            specs.input_cost_per_token !== ''
-              ? specs.input_cost_per_token
-              : config.input_cost_per_token,
-          completion:
-            specs.output_cost_per_token != null &&
-            specs.output_cost_per_token !== ''
-              ? specs.output_cost_per_token
-              : config.output_cost_per_token,
-        },
+        pricing: this.buildPricing(specs, config),
         supported_parameters: specs.supported_parameters,
         providers:
           overrideProviders ||
@@ -245,6 +230,32 @@ export class ModelService {
     }
 
     return results;
+  }
+
+  // Prefer specs (sell price) over deployment config (upstream cost). Cache
+  // fields are omitted when unpriced so clients fall back to the prompt rate,
+  // mirroring computeCost in pricing.ts — a returned "0" would mean free.
+  private buildPricing(
+    specs: Record<string, any>,
+    config: Record<string, any>
+  ) {
+    const pick = (specKey: string, configKey: string = specKey) => {
+      const specValue = specs[specKey];
+      if (specValue != null && specValue !== '') return specValue;
+      const configValue = config[configKey];
+      if (configValue != null && configValue !== '') return configValue;
+      return undefined;
+    };
+
+    const pricing: Record<string, string> = {
+      prompt: pick('input_cost_per_token') ?? '0',
+      completion: pick('output_cost_per_token') ?? '0',
+    };
+    const cacheRead = pick('cache_read_cost_per_token');
+    if (cacheRead !== undefined) pricing.input_cache_read = cacheRead;
+    const cacheWrite = pick('cache_creation_cost_per_token');
+    if (cacheWrite !== undefined) pricing.input_cache_write = cacheWrite;
+    return pricing;
   }
 
   private isEmbeddingsOnlyModel(specs: Record<string, unknown>): boolean {
