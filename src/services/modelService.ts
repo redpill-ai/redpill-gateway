@@ -30,8 +30,8 @@ const ModelSchema = z.object({
     .object({
       prompt: z.string().default('0'),
       completion: z.string().default('0'),
-      image: z.string().default('0'),
-      request: z.string().default('0'),
+      image: z.string().optional(),
+      request: z.string().optional(),
       input_cache_read: z.string().optional(),
       input_cache_write: z.string().optional(),
     })
