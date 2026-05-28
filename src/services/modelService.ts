@@ -32,8 +32,8 @@ const ModelSchema = z.object({
       completion: z.string().default('0'),
       image: z.string().default('0'),
       request: z.string().default('0'),
-      input_cache_reads: z.string().default('0'),
-      input_cache_writes: z.string().default('0'),
+      input_cache_read: z.string().default('0'),
+      input_cache_write: z.string().default('0'),
     })
     .default({}),
   supported_parameters: z.array(z.string()).default([]),
