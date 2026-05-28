@@ -20,7 +20,10 @@ interface SpendData {
   userId: number;
   virtualKeyId: number;
   provider: string;
+  /** Resolved canonical models.model_id — what was actually served. */
   model: string;
+  /** Raw model string from the client's HTTP body — alias or canonical. */
+  requestModel: string;
   modelDeploymentId: number;
   pricing: {
     inputCostPerToken: number;
@@ -180,6 +183,7 @@ export class SpendQueue {
             virtual_key_id: spendData.virtualKeyId,
             provider: spendData.provider,
             model: spendData.model,
+            request_model: spendData.requestModel,
             model_deployment_id: spendData.modelDeploymentId,
             input_tokens: inputTokens,
             output_tokens: outputTokens,

@@ -57,7 +57,8 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     virtualKeyWithUser,
     providerConfig,
     pricing,
-    originalModel,
+    modelId,
+    requestModel,
     modelDeploymentId,
     spendMode,
   } = virtualKeyContext;
@@ -76,7 +77,10 @@ async function processSpendData(spendData: RequestSpendData): Promise<void> {
     userId: virtualKeyWithUser.user.id,
     virtualKeyId: virtualKeyWithUser.id,
     provider: providerConfig?.provider || 'unknown',
-    model: originalModel,
+    // `model` = resolved canonical id (analytics/billing key);
+    // `requestModel` = raw client string (debug/deprecation tracking).
+    model: modelId,
+    requestModel,
     modelDeploymentId: modelDeploymentId,
     pricing: {
       inputCostPerToken: pricing?.inputCostPerToken || 0,

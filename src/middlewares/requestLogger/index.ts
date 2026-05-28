@@ -50,7 +50,9 @@ export const requestLogger = () => {
     const attemptIndexRaw = c.get('attemptIndex') as number | undefined;
     const hadUpstreamAttempt = attemptIndexRaw !== undefined;
     const attemptIndex = attemptIndexRaw ?? 0;
-    const requestedModel = c.get('requestedModel') as string | undefined;
+    // Falls back from ctx.requestModel when validation failed before ctx was
+    // built (auth/format/quota errors); see virtualKeyValidator c.set call.
+    const fallbackRequestModel = c.get('requestModel') as string | undefined;
 
     const contentType = c.res.headers.get('content-type') || '';
     const isStreaming = contentType.includes('text/event-stream');
@@ -71,7 +73,13 @@ export const requestLogger = () => {
         request_id: requestId,
         timestamp: formatTimestamp(new Date(start)),
         endpoint,
-        model: ctx?.originalModel ?? requestedModel ?? '',
+        // `model` = resolved canonical id (empty when gateway never selected
+        // a deployment — fail-fast traffic). `request_model` = raw client
+        // string, always preserved. Two columns, two facts:
+        //   - analytics/metricsAggregator group by `model`
+        //   - deprecation tracking queries `request_model`
+        model: ctx?.modelId ?? '',
+        request_model: ctx?.requestModel ?? fallbackRequestModel ?? '',
         provider: ctx?.providerConfig?.provider ?? '',
         model_deployment_id: ctx?.modelDeploymentId ?? 0,
         deployment_name: ctx?.deploymentName ?? '',

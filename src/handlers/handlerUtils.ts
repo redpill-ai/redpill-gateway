@@ -1392,7 +1392,8 @@ function enqueueFailedAttempt(
         .replace('T', ' ')
         .replace('Z', ''),
       endpoint,
-      model: ctx?.originalModel ?? '',
+      model: ctx?.modelId ?? '',
+      request_model: ctx?.requestModel ?? '',
       provider: deployment.provider_name,
       model_deployment_id: deployment.id,
       deployment_name: deployment.deployment_name,
@@ -1430,6 +1431,11 @@ export function updateVirtualKeyContextForDeployment(
   };
   ctx.deploymentName = deployment.deployment_name;
   ctx.modelDeploymentId = deployment.id;
+  // ctx.modelId is a per-model constant (same canonical model_id across all
+  // deployments of one model), so failover doesn't change it. Set defensively
+  // anyway — guards against future schema drift if deployments ever span
+  // models. ctx.requestModel is the client's raw input and never changes.
+  ctx.modelId = deployment.model_slug;
   // Intentionally NOT updating ctx.pricing: the customer-facing sell price
   // is a per-model constant (from models.specs), set once in
   // virtualKeyValidator. Failover changes WHICH provider serves the request

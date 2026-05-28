@@ -129,6 +129,11 @@ export class MetricsAggregator {
 
     try {
       const ch = await getClickHouseClient();
+      // `model` is the resolved canonical models.model_id (post-PR1) so this
+      // GROUP BY collapses requests across all aliases of the same model into
+      // one metric set per (model, deployment, provider). Skip rows where
+      // model is empty — those are fail-fast traffic with no resolved
+      // deployment; they shouldn't drive routing decisions.
       const result = await ch.query({
         query: `
           SELECT
@@ -147,6 +152,7 @@ export class MetricsAggregator {
             avg(if(tokens_per_second > 0, tokens_per_second, NULL)) AS avg_tps
           FROM request_logs
           WHERE timestamp >= now() - INTERVAL 6 HOUR
+            AND model != ''
           GROUP BY model, model_deployment_id, provider
         `,
         format: 'JSONEachRow',

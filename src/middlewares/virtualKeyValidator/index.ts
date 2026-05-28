@@ -29,7 +29,15 @@ export interface VirtualKeyContext {
   };
   deploymentName: string;
   modelDeploymentId: number;
-  originalModel: string;
+  // Canonical `models.model_id` of the resolved model. Used as the analytic /
+  // billing / routing key — request_logs.model, spend_logs.model, and
+  // metricsAggregator Redis keys all use this, not the client's raw string.
+  modelId: string;
+  // Raw model string the client put in the HTTP request body (alias or
+  // canonical, whatever they typed). Preserved for debug, customer support,
+  // and deprecation tracking ("who is still calling this old alias?").
+  // Written to request_logs.request_model / spend_logs.request_model.
+  requestModel: string;
   pricing: {
     inputCostPerToken: number;
     outputCostPerToken: number;
@@ -88,10 +96,15 @@ const createVirtualKeyContext = async (
   // deployment's config + model_specs. When metrics are absent (fresh deploy,
   // cleared Redis) deployments fall to INSUFFICIENT_DATA tier and routing
   // degrades gracefully to config.weight-based weighted random.
+  //
+  // Metrics are keyed by canonical `models.model_id`, not the raw client
+  // string — same physical deployments must share one metric set regardless
+  // of which alias the client typed. All deployments in this list belong to
+  // the same model, so any one's `model_slug` works as the key.
   let deployment: ModelDeployment;
   let deploymentsForCtx = allDeployments;
   if (allDeployments.length > 1) {
-    const metrics = await getMetricsForModel(modelName);
+    const metrics = await getMetricsForModel(allDeployments[0].model_slug);
     deploymentsForCtx = rankDeployments(allDeployments, metrics);
     deployment = deploymentsForCtx[0];
   } else {
@@ -135,7 +148,8 @@ const createVirtualKeyContext = async (
     },
     deploymentName: deployment.deployment_name,
     modelDeploymentId: deployment.id,
-    originalModel: modelName,
+    modelId: deployment.model_slug,
+    requestModel: modelName,
     pricing: {
       inputCostPerToken,
       outputCostPerToken,
@@ -301,10 +315,10 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
       modelName = c.req.query('model') || '';
     }
 
-    // Stash the requested model so requestLogger can populate request_logs.model
-    // even when validation fails before VirtualKeyContext is built (e.g. unknown
-    // model, invalid API key).
-    c.set('requestedModel', modelName);
+    // Stash the requested model so requestLogger can populate
+    // request_logs.request_model even when validation fails before
+    // VirtualKeyContext is built (e.g. unknown model, invalid API key).
+    c.set('requestModel', modelName);
 
     if (!modelName) {
       throw new VirtualKeyValidationError('Model parameter is required', 400);

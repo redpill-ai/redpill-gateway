@@ -24,6 +24,12 @@ export const ModelDeploymentSchema = z.object({
   // Denormalized from the joined models row so callers (virtualKeyValidator)
   // can read the customer-facing sell price without a second query.
   model_specs: z.any().nullable().optional(),
+  // Canonical `models.model_id` string for the row this deployment belongs to.
+  // Aliased as `model_slug` in SQL to avoid clashing with the numeric
+  // `md.model_id` FK already in `md.*`. Required so downstream code can write
+  // request_logs.model / metrics keys against the resolved identifier instead
+  // of whatever alias the client typed.
+  model_slug: z.string(),
 });
 
 export const ModelAliasSchema = z.object({
@@ -134,7 +140,8 @@ export async function getModelDeployments(
   modelNameOrAlias: string
 ): Promise<ModelDeployment[]> {
   const deployments = await queryPostgres<unknown>(
-    `SELECT DISTINCT md.*, m.specs AS model_specs FROM model_deployments md
+    `SELECT DISTINCT md.*, m.specs AS model_specs, m.model_id AS model_slug
+     FROM model_deployments md
      JOIN models m ON md.model_id = m.id
      LEFT JOIN model_aliases ma ON m.id = ma.model_id
      WHERE (m.model_id = $1 OR ma.alias = $1)

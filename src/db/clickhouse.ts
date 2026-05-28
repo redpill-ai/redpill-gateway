@@ -23,7 +23,11 @@ export interface SpendLogRow {
   user_id: number;
   virtual_key_id: number;
   provider: string;
+  /** Resolved `models.model_id` — what was actually served. Empty when the
+   *  gateway rejected before selecting a deployment (fail-fast traffic). */
   model: string;
+  /** Raw model string from the client's HTTP body (alias or canonical). */
+  request_model: string;
   model_deployment_id: number;
   input_tokens: number;
   output_tokens: number;
@@ -61,7 +65,11 @@ export interface RequestLogRow {
   request_id: string;
   timestamp: string;
   endpoint: string;
+  /** Resolved `models.model_id` — what was actually served. Empty when the
+   *  gateway rejected before selecting a deployment (fail-fast traffic). */
   model: string;
+  /** Raw model string from the client's HTTP body (alias or canonical). */
+  request_model: string;
   provider: string;
   model_deployment_id: number;
   deployment_name: string;

@@ -59,16 +59,25 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
+/**
+ * Reads per-deployment metrics keyed by canonical `models.model_id`.
+ *
+ * Callers must pass the resolved canonical id (e.g. `deployment.model_slug`),
+ * not the raw client-supplied alias string. metricsAggregator writes one hash
+ * per canonical model — passing an alias here would miss it because the
+ * aggregator collapses all aliases of the same model into one hash, keyed by
+ * the canonical value.
+ */
 export async function getMetricsForModel(
-  model: string
+  modelId: string
 ): Promise<Map<number, DeploymentMetrics>> {
   const now = Date.now();
-  const cached = cache.get(model);
+  const cached = cache.get(modelId);
   if (cached && cached.expiresAt > now) return cached.value;
 
   try {
     const client = await getRedisClient();
-    const raw = await client.hGetAll(metricsKey(model));
+    const raw = await client.hGetAll(metricsKey(modelId));
     const map = new Map<number, DeploymentMetrics>();
     for (const [field, value] of Object.entries(raw)) {
       const id = Number(field);
@@ -79,7 +88,7 @@ export async function getMetricsForModel(
         // skip malformed entries
       }
     }
-    cache.set(model, { value: map, expiresAt: now + CACHE_TTL_MS });
+    cache.set(modelId, { value: map, expiresAt: now + CACHE_TTL_MS });
     return map;
   } catch (err) {
     console.error('[METRICS] read failed:', err);
