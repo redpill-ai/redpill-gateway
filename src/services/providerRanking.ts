@@ -11,6 +11,7 @@ import { getRedisClient } from '../db/redis';
 import {
   DeploymentMetrics,
   DeploymentTier,
+  keyAvailabilityKey,
   metricsKey,
 } from './metricsAggregator';
 
@@ -50,6 +51,73 @@ export function marginScore(d: ModelDeployment): number {
 
 export function finalScore(d: ModelDeployment, uxScore: number): number {
   return W_UX * uxScore + W_MARGIN * marginScore(d);
+}
+
+export type RoutingStrategy = 'availability' | 'profit';
+
+// Profit-first only serves backends whose full margin is at or above this floor
+// (0 = break-even). Loss-making backends are last-resort fallback only.
+export const PROFIT_MIN_MARGIN = 0;
+
+function toNum(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Full per-(1 input + 1 output token) margin for profit eligibility:
+ *   ((sellIn - costIn) + (sellOut - costOut)) / (costIn + costOut)
+ * Returns null when any price is missing/unparseable or total cost <= 0 —
+ * callers treat null as "not profit-eligible" (don't route profit traffic to a
+ * backend we can't price).
+ */
+export function fullMargin(d: ModelDeployment): number | null {
+  const specs = (d.model_specs ?? {}) as Record<string, unknown>;
+  const config = (d.config ?? {}) as Record<string, unknown>;
+  const sellIn = toNum(specs.input_cost_per_token);
+  const sellOut = toNum(specs.output_cost_per_token);
+  const costIn = toNum(config.input_cost_per_token);
+  const costOut = toNum(config.output_cost_per_token);
+  if (sellIn == null || sellOut == null || costIn == null || costOut == null) {
+    return null;
+  }
+  const costSum = costIn + costOut;
+  if (costSum <= 0) return null;
+  return (sellIn - costIn + (sellOut - costOut)) / costSum;
+}
+
+/**
+ * Cached recent availability for a virtual key (written by
+ * MetricsAggregator.refresh), or null if unknown. Read side — mirrors
+ * getMetricsForModel. Hot path reads this single number; no CH, no counters.
+ */
+export async function getKeyAvailability(
+  vkId: number,
+  model: string
+): Promise<number | null> {
+  try {
+    const client = await getRedisClient();
+    const v = await client.get(keyAvailabilityKey(vkId, model));
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  } catch (err) {
+    console.error('[PROFIT_AVAIL] read failed:', err);
+    return null;
+  }
+}
+
+/**
+ * At the loss boundary, 429 only when the key has headroom strictly above its
+ * floor; serve at a loss when it's at/below the floor or availability is
+ * unknown. Pure.
+ */
+export function shouldRejectForProfit(
+  availability: number | null,
+  floor: number
+): boolean {
+  return availability != null && availability > floor;
 }
 
 type CacheEntry = {
@@ -114,11 +182,40 @@ function weightedRandomIndex(weights: number[]): number {
   return weights.length - 1;
 }
 
-export function rankDeployments(
+/**
+ * Profit-first ordering: profitable (margin ≥ PROFIT_MIN_MARGIN) backends
+ * first, most reliable (UX) first; loss-making / unpriceable backends last,
+ * least-loss first. The failover loop tries the profitable prefix normally and
+ * only crosses into the loss suffix under the per-key availability floor (else
+ * 429) — see tryWithDeploymentFailover.
+ */
+function rankProfit(
   deployments: ModelDeployment[],
   metrics: Map<number, DeploymentMetrics>
 ): ModelDeployment[] {
+  const ux = (d: ModelDeployment) => metrics.get(d.id)?.score ?? 0;
+  const profitable: ModelDeployment[] = [];
+  const lossy: { d: ModelDeployment; margin: number }[] = [];
+  for (const d of deployments) {
+    const m = fullMargin(d);
+    if (m != null && m >= PROFIT_MIN_MARGIN) profitable.push(d);
+    else lossy.push({ d, margin: m ?? -Infinity }); // unpriceable sorts last
+  }
+  profitable.sort((a, b) => ux(b) - ux(a));
+  lossy.sort((a, b) =>
+    b.margin !== a.margin ? b.margin - a.margin : ux(b.d) - ux(a.d)
+  );
+  return [...profitable, ...lossy.map((x) => x.d)];
+}
+
+export function rankDeployments(
+  deployments: ModelDeployment[],
+  metrics: Map<number, DeploymentMetrics>,
+  strategy: RoutingStrategy = 'availability'
+): ModelDeployment[] {
   if (deployments.length <= 1) return deployments;
+
+  if (strategy === 'profit') return rankProfit(deployments, metrics);
 
   type Decorated = {
     d: ModelDeployment;

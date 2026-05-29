@@ -8,6 +8,7 @@
  */
 import { getClickHouseClient } from '../db/clickhouse';
 import { buildCacheKey, getRedisClient } from '../db/redis';
+import { queryPostgres } from '../db/postgres/connection';
 
 const GOOD_THRESHOLD = 0.95;
 const DEGRADED_THRESHOLD = 0.8;
@@ -31,6 +32,12 @@ const TTFT_WORST_MS = 5000;
 const LATENCY_BEST_MS = 5000;
 const LATENCY_WORST_MS = 30000;
 const TPS_TARGET = 50;
+
+// Profit-first per-key availability (written by MetricsAggregator, read in
+// providerRanking).
+const PROFIT_AVAIL_WINDOW_HOURS = 1;
+const PROFIT_AVAIL_MIN_SAMPLE = 50; // below this, leave unknown (don't 429)
+const PROFIT_AVAIL_TTL = 900; // 15 min (> 5 min refresh)
 
 export type DeploymentTier =
   | 'GOOD'
@@ -161,6 +168,14 @@ export function metricsKey(model: string): string {
   return buildCacheKey('metrics', 'routing', model);
 }
 
+// Per-(key, model) profit availability, under the same `metrics` namespace as
+// metricsKey (both written by MetricsAggregator, read in providerRanking). The
+// floor is per-model: we protect each model's availability for the key, not a
+// cross-model blend.
+export function keyAvailabilityKey(vkId: number, model: string): string {
+  return buildCacheKey('metrics', 'profit_availability', String(vkId), model);
+}
+
 export class MetricsAggregator {
   private static instance: MetricsAggregator;
   private readonly LOCK_KEY = buildCacheKey('metrics', 'lock');
@@ -237,16 +252,23 @@ export class MetricsAggregator {
         byModel.set(raw.model, fields);
       }
 
-      if (byModel.size === 0) return;
-
-      const pipe = client.multi();
-      for (const [model, fields] of byModel) {
-        const key = metricsKey(model);
-        pipe.del(key);
-        pipe.hSet(key, fields);
-        pipe.expire(key, this.RESULT_TTL);
+      if (byModel.size > 0) {
+        const pipe = client.multi();
+        for (const [model, fields] of byModel) {
+          const key = metricsKey(model);
+          pipe.del(key);
+          pipe.hSet(key, fields);
+          pipe.expire(key, this.RESULT_TTL);
+        }
+        await pipe.exec();
       }
-      await pipe.exec();
+
+      // Profit-first per-key availability — AFTER the tier write so a slow
+      // profit query can't delay the critical routing metrics. Isolated so a
+      // failure here doesn't break tier refresh.
+      await this.refreshProfitAvailability().catch((err) =>
+        console.error('[PROFIT_AVAIL] refresh failed:', err)
+      );
     } catch (err) {
       console.error('[METRICS_AGG] refresh failed:', err);
     } finally {
@@ -255,6 +277,61 @@ export class MetricsAggregator {
       } catch (err) {
         console.error('[METRICS_AGG] lock release failed:', err);
       }
+    }
+  }
+
+  // Compute per-(key, model) availability for keys on the 'profit' strategy and
+  // cache it for the failover floor decision. Per request (deduped by
+  // request_id, not per attempt) and per model, so the floor protects each
+  // model's availability for the key rather than a cross-model blend. Our
+  // profit 429s and upstream failures lower it; client 4xx also count as
+  // not-served (conservative — errs toward serving). Only profit keys (a small
+  // operator-set list) are queried.
+  private async refreshProfitAvailability(): Promise<void> {
+    const keys = await queryPostgres<{ id: number }>(
+      `SELECT id FROM virtual_keys
+       WHERE active = true AND metadata->>'routing_strategy' = 'profit'`
+    );
+    const ids = keys.map((k) => Number(k.id)).filter(Number.isFinite);
+    if (!ids.length) return;
+
+    const ch = await getClickHouseClient();
+    // Dedup by request_id: failover writes one row per attempt, so counting
+    // rows would over-count failures for failover-heavy keys. A request is
+    // "served" if any of its rows succeeded (is_success=1); availability =
+    // served requests / total requests, computed per (key, model).
+    const result = await ch.query({
+      query: `
+        SELECT
+          toUInt64(virtual_key_id) AS vk,
+          model,
+          uniqExact(request_id) AS total,
+          uniqExactIf(request_id, is_success = 1) AS served
+        FROM request_logs
+        WHERE timestamp >= now() - INTERVAL ${PROFIT_AVAIL_WINDOW_HOURS} HOUR
+          AND virtual_key_id IN (${ids.join(',')})
+          AND model != ''
+        GROUP BY virtual_key_id, model
+      `,
+      format: 'JSONEachRow',
+    });
+    const rows = await result.json<{
+      vk: number | string;
+      model: string;
+      total: number | string;
+      served: number | string;
+    }>();
+
+    const client = await getRedisClient();
+    for (const r of rows) {
+      const total = Number(r.total);
+      if (total < PROFIT_AVAIL_MIN_SAMPLE) continue; // too little signal
+      const avail = Number(r.served) / total;
+      await client.set(
+        keyAvailabilityKey(Number(r.vk), r.model),
+        String(avail),
+        { EX: PROFIT_AVAIL_TTL }
+      );
     }
   }
 

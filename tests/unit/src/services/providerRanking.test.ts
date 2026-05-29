@@ -1,7 +1,9 @@
 import {
   finalScore,
+  fullMargin,
   marginScore,
   rankDeployments,
+  shouldRejectForProfit,
 } from '../../../../src/services/providerRanking';
 import { DeploymentMetrics } from '../../../../src/services/metricsAggregator';
 import { ModelDeployment } from '../../../../src/db/postgres/model';
@@ -13,10 +15,22 @@ type DepOptions = {
   // common case from JSONB / decimal columns) or numbers.
   sellInput?: string | number | null;
   costInput?: string | number | null;
+  sellOutput?: string | number | null;
+  costOutput?: string | number | null;
 };
 
 function dep(id: number, opts: DepOptions = {}): ModelDeployment {
-  const { weight = 1, provider = 'p' + id, sellInput, costInput } = opts;
+  const {
+    weight = 1,
+    provider = 'p' + id,
+    sellInput,
+    costInput,
+    sellOutput,
+    costOutput,
+  } = opts;
+  const specs: Record<string, unknown> = {};
+  if (sellInput !== undefined) specs.input_cost_per_token = sellInput;
+  if (sellOutput !== undefined) specs.output_cost_per_token = sellOutput;
   return {
     id,
     model_id: 1,
@@ -25,12 +39,15 @@ function dep(id: number, opts: DepOptions = {}): ModelDeployment {
     config: {
       weight,
       ...(costInput !== undefined ? { input_cost_per_token: costInput } : {}),
+      ...(costOutput !== undefined
+        ? { output_cost_per_token: costOutput }
+        : {}),
     },
     active: true,
     created_at: new Date(0),
     updated_at: new Date(0),
-    model_specs:
-      sellInput !== undefined ? { input_cost_per_token: sellInput } : undefined,
+    model_slug: 'model-' + id,
+    model_specs: Object.keys(specs).length ? specs : undefined,
   };
 }
 
@@ -45,6 +62,7 @@ function metric(
     p50_ttft_ms: 0,
     avg_tps: 0,
     sample: 1000,
+    window: '6h',
     provider: 'unknown',
     computed_at: 0,
     ...partial,
@@ -300,5 +318,113 @@ describe('rankDeployments with margin signal', () => {
     // The output must contain both deployments (no hard exclusion).
     expect(new Set(ranked.map((x) => x.id))).toEqual(new Set([1, 2]));
     expect(ranked).toHaveLength(2);
+  });
+});
+
+describe('fullMargin', () => {
+  it('combines input + output per-token margin', () => {
+    // ((1.21-1.2)+(4.2-4.0)) / (1.2+4.0) = 0.21/5.2 = 0.0404
+    expect(
+      fullMargin(
+        dep(1, {
+          sellInput: '1.21e-6',
+          sellOutput: '4.2e-6',
+          costInput: '1.2e-6',
+          costOutput: '4.0e-6',
+        })
+      )
+    ).toBeCloseTo(0.0404, 3);
+  });
+
+  it('is negative when sell < cost', () => {
+    expect(
+      fullMargin(
+        dep(1, {
+          sellInput: '1.21e-6',
+          sellOutput: '4.2e-6',
+          costInput: '1.5e-6',
+          costOutput: '5.25e-6',
+        })
+      )
+    ).toBeCloseTo(-0.199, 3);
+  });
+
+  it('returns null when a price is missing or total cost is 0', () => {
+    expect(
+      fullMargin(dep(1, { sellInput: '1e-6', costInput: '1e-6' }))
+    ).toBeNull();
+    expect(
+      fullMargin(
+        dep(1, {
+          sellInput: '1e-6',
+          sellOutput: '1e-6',
+          costInput: '0',
+          costOutput: '0',
+        })
+      )
+    ).toBeNull();
+  });
+});
+
+describe('shouldRejectForProfit', () => {
+  it('serves (no 429) when availability is unknown', () => {
+    expect(shouldRejectForProfit(null, 0.7)).toBe(false);
+  });
+  it('429s when availability has headroom strictly above the floor', () => {
+    expect(shouldRejectForProfit(0.9, 0.7)).toBe(true);
+  });
+  it('serves at/below the floor (rejecting could push below)', () => {
+    expect(shouldRejectForProfit(0.7, 0.7)).toBe(false);
+    expect(shouldRejectForProfit(0.6, 0.7)).toBe(false);
+  });
+});
+
+describe('rankDeployments — profit strategy', () => {
+  const profitable = {
+    sellInput: '1.3e-6',
+    sellOutput: '1.3e-6',
+    costInput: '1e-6',
+    costOutput: '1e-6',
+  }; // +30%
+  const lossy = {
+    sellInput: '1e-6',
+    sellOutput: '1e-6',
+    costInput: '1.5e-6',
+    costOutput: '1.5e-6',
+  }; // −33%
+
+  it('ranks profitable backends before loss-making ones (even if lossy has higher UX)', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'DEGRADED', score: 0.3 })],
+      [2, metric({ tier: 'GOOD', score: 0.95 })],
+    ]);
+    const ranked = rankDeployments(
+      [dep(2, lossy), dep(1, profitable)],
+      m,
+      'profit'
+    );
+    expect(ranked.map((x) => x.id)).toEqual([1, 2]);
+  });
+
+  it('orders profitable backends by UX descending', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.6 })],
+      [2, metric({ tier: 'GOOD', score: 0.9 })],
+    ]);
+    const ranked = rankDeployments(
+      [dep(1, profitable), dep(2, profitable)],
+      m,
+      'profit'
+    );
+    expect(ranked.map((x) => x.id)).toEqual([2, 1]);
+  });
+
+  it('default availability strategy is unchanged (GOOD beats DEGRADED despite loss)', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.9 })],
+      [2, metric({ tier: 'DEGRADED', score: 0.6 })],
+    ]);
+    const ranked = rankDeployments([dep(1, lossy), dep(2, profitable)], m);
+    expect(ranked[0].id).toBe(1);
   });
 });

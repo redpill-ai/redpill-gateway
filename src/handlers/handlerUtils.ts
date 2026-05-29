@@ -34,6 +34,12 @@ import { GatewayError } from '../errors/GatewayError';
 import { HookType } from '../middlewares/hooks/types';
 import { type ModelDeployment } from '../db/postgres/model';
 import { type VirtualKeyContext } from '../middlewares/virtualKeyValidator';
+import {
+  fullMargin,
+  getKeyAvailability,
+  PROFIT_MIN_MARGIN,
+  shouldRejectForProfit,
+} from '../services/providerRanking';
 
 // Services
 import { CacheResponseObject, CacheService } from './services/cacheService';
@@ -1494,11 +1500,57 @@ export async function tryWithDeploymentFailover(
   const isBasicTier =
     (virtualKeyContext?.virtualKeyWithUser?.metadata as Record<string, any>)
       ?.tier === 'basic';
+
+  // Profit-first: `ordered` is profitable backends first, loss-making ones
+  // last. The floor decision fires once, at the first loss-making backend.
+  const isProfit = virtualKeyContext?.routingStrategy === 'profit';
+  const profitKeyId = virtualKeyContext?.virtualKeyWithUser?.id;
+  let lossServeAllowed = false;
+
   let lastResponse: Response | undefined;
   let lastAttemptIndex = 0;
 
   for (let i = 0; i < ordered.length; i++) {
     const deployment = ordered[i];
+
+    // Reached the loss-making suffix (profitable backends exhausted)? If the
+    // key still has availability headroom above its floor, 429 rather than
+    // serve at a loss; otherwise serve via the least-loss backend. Decided once.
+    if (isProfit && profitKeyId != null && !lossServeAllowed) {
+      const margin = fullMargin(deployment);
+      const lossMaking = margin == null || margin < PROFIT_MIN_MARGIN;
+      if (lossMaking) {
+        const availability = await getKeyAvailability(
+          profitKeyId,
+          deployment.model_slug
+        );
+        // 0.7 = min availability floor for profit keys: 429 only when recent
+        // availability is comfortably above it, else serve at a loss.
+        if (shouldRejectForProfit(availability, 0.7)) {
+          c.set('attemptIndex', i);
+          // Generic rate-limit 429 — must NOT reveal the cost/profit reason.
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  'Rate limit exceeded. Please retry after the reset time.',
+                type: 'rate_limit_error',
+                code: 'rate_limit_exceeded',
+              },
+            }),
+            {
+              status: 429,
+              headers: {
+                'Content-Type': 'application/json',
+                'Retry-After': '5',
+              },
+            }
+          );
+        }
+        lossServeAllowed = true;
+      }
+    }
+
     updateVirtualKeyContextForDeployment(c, deployment);
 
     let attemptHeaders = { ...requestHeaders };

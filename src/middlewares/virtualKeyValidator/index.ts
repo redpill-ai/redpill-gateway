@@ -8,6 +8,7 @@ import { ModelService } from '../../services/modelService';
 import {
   getMetricsForModel,
   rankDeployments,
+  type RoutingStrategy,
 } from '../../services/providerRanking';
 import { env } from '../../constants';
 import { hash } from '../../utils/hash';
@@ -51,7 +52,23 @@ export interface VirtualKeyContext {
   requestHash?: string;
   spendMode: SpendMode;
   allDeployments: ModelDeployment[];
+  // Per-key routing strategy from virtual_keys.metadata.routing_strategy.
+  // 'availability' (default) = health-first ranking; 'profit' = margin-first
+  // with a loss-boundary availability floor (see tryWithDeploymentFailover).
+  routingStrategy: RoutingStrategy;
 }
+
+// Reads the per-key routing strategy from metadata. Anything other than the
+// literal 'profit' (absent / anonymous / typo) → 'availability', so existing
+// keys keep current behavior.
+const parseRoutingStrategy = (
+  virtualKeyWithUser: VirtualKeyWithUser | null
+): RoutingStrategy => {
+  const metadata = virtualKeyWithUser?.metadata as {
+    routing_strategy?: unknown;
+  } | null;
+  return metadata?.routing_strategy === 'profit' ? 'profit' : 'availability';
+};
 
 class VirtualKeyValidationError extends Error {
   public readonly statusCode: number;
@@ -107,11 +124,16 @@ const createVirtualKeyContext = async (
   // string — same physical deployments must share one metric set regardless
   // of which alias the client typed. All deployments in this list belong to
   // the same model, so any one's `model_slug` works as the key.
+  const routingStrategy = parseRoutingStrategy(virtualKeyWithUser);
   let deployment: ModelDeployment;
   let deploymentsForCtx = allDeployments;
   if (allDeployments.length > 1) {
     const metrics = await getMetricsForModel(allDeployments[0].model_slug);
-    deploymentsForCtx = rankDeployments(allDeployments, metrics);
+    deploymentsForCtx = rankDeployments(
+      allDeployments,
+      metrics,
+      routingStrategy
+    );
     deployment = deploymentsForCtx[0];
   } else {
     deployment = allDeployments[0];
@@ -181,6 +203,7 @@ const createVirtualKeyContext = async (
     requestHash,
     spendMode,
     allDeployments: deploymentsForCtx,
+    routingStrategy,
   };
 };
 
