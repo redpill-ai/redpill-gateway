@@ -1,6 +1,8 @@
 /**
- * 6h request_logs → Redis aggregator producing tier + UX score per deployment
- * for metric-driven routing. Refresh every 5 min. Margin is NOT computed here;
+ * request_logs → Redis aggregator producing tier + UX score per deployment for
+ * metric-driven routing. Scans 24h, prefers a responsive 6h sub-window and
+ * falls back to 24h for low-traffic deployments (see DeploymentMetrics.window).
+ * Refresh every 5 min. Margin is NOT computed here;
  * providerRanking blends it in at routing time using deployment.model_specs
  * and deployment.config (both available in-memory on every request).
  */
@@ -47,23 +49,76 @@ export interface DeploymentMetrics {
   p50_ttft_ms: number;
   avg_tps: number;
   sample: number;
+  // Window these metrics were computed over. Normally '6h' (responsive); a
+  // low-traffic deployment that can't reach MIN_SAMPLE in 6h falls back to the
+  // 24h window so it gets a real tier instead of being stuck INSUFFICIENT_DATA
+  // forever. High-traffic deployments always use 6h, so outage detection stays
+  // fast for the backends that carry real volume.
+  window: '6h' | '24h';
   provider: string;
   computed_at: number;
 }
 
+// One GROUP BY row: the same aggregates over the recent 6h sub-window and over
+// the full 24h scan window. buildDeploymentMetrics picks which set to use.
 interface AggRow {
   model: string;
   deployment_id: number | string;
   provider: string;
-  total: number | string;
-  success_count: number | string;
-  uptime_den: number | string;
-  rate_limited: number | string;
-  server_errors: number | string;
-  p50_latency_ms: number | string;
-  p95_latency_ms: number | string;
-  p50_ttft_ms: number | string;
-  avg_tps: number | string;
+  total_6h: number | string;
+  success_6h: number | string;
+  uptime_den_6h: number | string;
+  p50_latency_6h: number | string;
+  p95_latency_6h: number | string;
+  p50_ttft_6h: number | string;
+  avg_tps_6h: number | string;
+  total_24h: number | string;
+  success_24h: number | string;
+  uptime_den_24h: number | string;
+  p50_latency_24h: number | string;
+  p95_latency_24h: number | string;
+  p50_ttft_24h: number | string;
+  avg_tps_24h: number | string;
+}
+
+/**
+ * Adaptive window: use the responsive 6h metrics when 6h has enough samples
+ * (uptime_den_6h >= MIN_SAMPLE), else fall back to 24h so low-traffic
+ * deployments still get classified. Pure — unit-tested directly.
+ */
+export function buildDeploymentMetrics(
+  raw: AggRow,
+  computedAt: number
+): DeploymentMetrics {
+  const uptimeDen6 = Number(raw.uptime_den_6h);
+  const use6 = uptimeDen6 >= MIN_SAMPLE;
+  const window: '6h' | '24h' = use6 ? '6h' : '24h';
+
+  const total = Number(use6 ? raw.total_6h : raw.total_24h);
+  const successCount = Number(use6 ? raw.success_6h : raw.success_24h);
+  const uptimeDen = use6 ? uptimeDen6 : Number(raw.uptime_den_24h);
+  const p50 = Number(use6 ? raw.p50_latency_6h : raw.p50_latency_24h) || 0;
+  const p95 = Number(use6 ? raw.p95_latency_6h : raw.p95_latency_24h) || 0;
+  const p50Ttft = Number(use6 ? raw.p50_ttft_6h : raw.p50_ttft_24h) || 0;
+  const avgTps = Number(use6 ? raw.avg_tps_6h : raw.avg_tps_24h) || 0;
+
+  const uptime = uptimeDen >= MIN_SAMPLE ? successCount / uptimeDen : null;
+  const tier = tierFromUptime(uptime, uptimeDen);
+  const score = computeScore(uptime, p50, p50Ttft, avgTps);
+
+  return {
+    tier,
+    score,
+    uptime,
+    p50_latency_ms: p50,
+    p95_latency_ms: p95,
+    p50_ttft_ms: p50Ttft,
+    avg_tps: avgTps,
+    sample: total,
+    window,
+    provider: String(raw.provider ?? ''),
+    computed_at: computedAt,
+  };
 }
 
 export function tierFromUptime(
@@ -99,8 +154,11 @@ export function computeScore(
   return W_UPTIME * uptime + W_TTFT * ttft + W_LATENCY * lat + W_TPS * t;
 }
 
+// Namespace is window-agnostic: the metrics under this key may be computed over
+// the 6h or 24h window per deployment (see DeploymentMetrics.window). Renamed
+// off the old '6h' literal so the name no longer implies a fixed window.
 export function metricsKey(model: string): string {
-  return buildCacheKey('metrics', '6h', model);
+  return buildCacheKey('metrics', 'routing', model);
 }
 
 export class MetricsAggregator {
@@ -134,24 +192,34 @@ export class MetricsAggregator {
       // one metric set per (model, deployment, provider). Skip rows where
       // model is empty — those are fail-fast traffic with no resolved
       // deployment; they shouldn't drive routing decisions.
+      // Scan 24h once; compute aggregates over both the recent 6h sub-window
+      // (responsive) and the full 24h window (cold-start fallback for
+      // low-traffic deployments). buildDeploymentMetrics picks per deployment.
       const result = await ch.query({
         query: `
           SELECT
             model,
             toUInt64(model_deployment_id) AS deployment_id,
             provider,
-            count() AS total,
-            countIf(is_success = 1) AS success_count,
+            countIf(timestamp >= now() - INTERVAL 6 HOUR) AS total_6h,
+            countIf(is_success = 1 AND timestamp >= now() - INTERVAL 6 HOUR) AS success_6h,
+            countIf(timestamp >= now() - INTERVAL 6 HOUR
+                    AND NOT (status_code >= 400 AND status_code < 500
+                             AND status_code NOT IN (408, 425, 429))) AS uptime_den_6h,
+            quantileIf(0.5)(duration_ms, timestamp >= now() - INTERVAL 6 HOUR) AS p50_latency_6h,
+            quantileIf(0.95)(duration_ms, timestamp >= now() - INTERVAL 6 HOUR) AS p95_latency_6h,
+            quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0 AND timestamp >= now() - INTERVAL 6 HOUR) AS p50_ttft_6h,
+            avgIf(if(tokens_per_second > 0, tokens_per_second, NULL), timestamp >= now() - INTERVAL 6 HOUR) AS avg_tps_6h,
+            count() AS total_24h,
+            countIf(is_success = 1) AS success_24h,
             countIf(NOT (status_code >= 400 AND status_code < 500
-                         AND status_code NOT IN (408, 425, 429))) AS uptime_den,
-            countIf(error_type = 'rate_limit') AS rate_limited,
-            countIf(error_type IN ('upstream_5xx','timeout')) AS server_errors,
-            quantile(0.5)(duration_ms) AS p50_latency_ms,
-            quantile(0.95)(duration_ms) AS p95_latency_ms,
-            quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0) AS p50_ttft_ms,
-            avg(if(tokens_per_second > 0, tokens_per_second, NULL)) AS avg_tps
+                         AND status_code NOT IN (408, 425, 429))) AS uptime_den_24h,
+            quantile(0.5)(duration_ms) AS p50_latency_24h,
+            quantile(0.95)(duration_ms) AS p95_latency_24h,
+            quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0) AS p50_ttft_24h,
+            avg(if(tokens_per_second > 0, tokens_per_second, NULL)) AS avg_tps_24h
           FROM request_logs
-          WHERE timestamp >= now() - INTERVAL 6 HOUR
+          WHERE timestamp >= now() - INTERVAL 24 HOUR
             AND model != ''
           GROUP BY model, model_deployment_id, provider
         `,
@@ -163,37 +231,7 @@ export class MetricsAggregator {
       const byModel = new Map<string, Record<string, string>>();
       const now = Math.floor(Date.now() / 1000);
       for (const raw of rows) {
-        const total = Number(raw.total);
-        const successCount = Number(raw.success_count);
-        const uptimeDen = Number(raw.uptime_den);
-        const p50 = Number(raw.p50_latency_ms) || 0;
-        const p95 = Number(raw.p95_latency_ms) || 0;
-        const p50Ttft = Number(raw.p50_ttft_ms) || 0;
-        const avgTps = Number(raw.avg_tps) || 0;
-
-        const uptime =
-          uptimeDen >= MIN_SAMPLE ? successCount / uptimeDen : null;
-        // Pass uptimeDen (excludes 4xx user errors) as sample — matches the
-        // uptime formula's denominator. Functionally equivalent to `total`
-        // today because the uptime==null guard in tierFromUptime already
-        // gates INSUFFICIENT_DATA when uptimeDen<MIN_SAMPLE, but stating
-        // intent clearly prevents regression if that guard changes.
-        const tier = tierFromUptime(uptime, uptimeDen);
-        const score = computeScore(uptime, p50, p50Ttft, avgTps);
-
-        const metrics: DeploymentMetrics = {
-          tier,
-          score,
-          uptime,
-          p50_latency_ms: p50,
-          p95_latency_ms: p95,
-          p50_ttft_ms: p50Ttft,
-          avg_tps: avgTps,
-          sample: total,
-          provider: String(raw.provider ?? ''),
-          computed_at: now,
-        };
-
+        const metrics = buildDeploymentMetrics(raw, now);
         const fields = byModel.get(raw.model) ?? {};
         fields[String(raw.deployment_id)] = JSON.stringify(metrics);
         byModel.set(raw.model, fields);
