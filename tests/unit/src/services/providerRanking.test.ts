@@ -476,28 +476,54 @@ describe('rankDeployments — profit strategy', () => {
     expect(ranked.map((x) => x.id)).toEqual([1, 2]);
   });
 
-  it('weights the profitable primary by UX (higher UX wins more often, neither starves)', () => {
+  // Higher absolute margin (cheaper upstream cost) at the same sell price.
+  const cheaper = {
+    sellInput: '1.3e-6',
+    sellOutput: '1.3e-6',
+    costInput: '0.5e-6',
+    costOutput: '0.5e-6',
+  }; // bigger (sell-cost) than `profitable`
+
+  it('ranks graduated profitable by expected profit — higher margin wins at equal uptime, beating higher UX', () => {
+    // Both reliable (same uptime). id 2 has the higher absolute margin but the
+    // LOWER UX score; id 1 has higher UX but lower margin. Under EV ranking the
+    // higher-margin backend is primary — the profit the old UX-only ranking left
+    // on the table. (This is the glm near-ai case in miniature.)
     const m = new Map<number, DeploymentMetrics>([
-      [1, metric({ tier: 'GOOD', score: 0.6 })],
-      [2, metric({ tier: 'GOOD', score: 0.9 })],
+      [1, metric({ tier: 'GOOD', score: 0.9, uptime: 0.98 })],
+      [2, metric({ tier: 'GOOD', score: 0.6, uptime: 0.98 })],
     ]);
-    const tally = new Map<number, number>([
-      [1, 0],
-      [2, 0],
+    const ranked = rankDeployments(
+      [dep(1, profitable), dep(2, cheaper)],
+      m,
+      'profit'
+    );
+    expect(ranked.map((x) => x.id)).toEqual([2, 1]);
+  });
+
+  it('never promotes an unreliable profitable backend to primary (negative EV)', () => {
+    // A profitable-but-unreliable graduated backend (id 2, uptime 0.3) has EV ≤ 0
+    // and must stay in failover — only the best-EV graduated (id 1) or a cold
+    // backend (id 3) may win the primary slot. (This is the gemma near-ai 0.275
+    // case: profitable, but too flaky to be primary.)
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.7, uptime: 0.98 })],
+      [2, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.3 })],
+      [3, metric({ tier: 'INSUFFICIENT_DATA', score: 0, uptime: null })],
     ]);
+    const seenPrimary = new Set<number>();
     const N = 2000;
     for (let i = 0; i < N; i++) {
       const ranked = rankDeployments(
-        [dep(1, profitable), dep(2, profitable)],
+        [dep(1, profitable), dep(2, profitable), dep(3, profitable)],
         m,
         'profit'
       );
-      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+      seenPrimary.add(ranked[0].id);
     }
-    // Both profitable + graduated → UX-weighted primary: id 2 (0.9) wins more
-    // than id 1 (0.6), but id 1 is not starved.
-    expect(tally.get(2)!).toBeGreaterThan(tally.get(1)!);
-    expect(tally.get(1)!).toBeGreaterThan(0);
+    expect(seenPrimary.has(2)).toBe(false); // mediocre graduated never primary
+    expect(seenPrimary.has(1)).toBe(true); // best graduated wins most
+    expect(seenPrimary.has(3)).toBe(true); // cold still explores
   });
 
   it('explores only profitable cold backends, never lossy ones', () => {
@@ -522,6 +548,47 @@ describe('rankDeployments — profit strategy', () => {
     expect(seenPrimary.has(3)).toBe(false); // lossy cold never explored
     expect(seenPrimary.has(2)).toBe(true); // profitable cold does get explored
     expect(seenPrimary.has(1)).toBe(true);
+  });
+
+  it('gives a cold profitable backend a small bounded primary share (~EXPLORE_WEIGHT)', () => {
+    // One reliable graduated profitable backend + one cold profitable backend.
+    // The cold one explores at ~5% (best normalized to weight 1, cold = 0.05).
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.9, uptime: 0.98 })],
+      [2, metric({ tier: 'INSUFFICIENT_DATA', score: 0, uptime: null })],
+    ]);
+    const tally = new Map<number, number>([
+      [1, 0],
+      [2, 0],
+    ]);
+    const N = 3000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(
+        [dep(1, profitable), dep(2, profitable)],
+        m,
+        'profit'
+      );
+      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+    }
+    expect(tally.get(2)!).toBeGreaterThan(0);
+    expect(tally.get(2)! / N).toBeLessThan(0.12);
+    expect(tally.get(1)!).toBeGreaterThan(tally.get(2)!);
+  });
+
+  it('picks the least-bad-EV primary when all graduated profitable backends are unreliable (none dropped)', () => {
+    // No cold; both profitable but flaky → both EV<0, but the less-flaky one
+    // (higher EV) is primary, and both stay in the output.
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.3 })],
+      [2, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.4 })],
+    ]);
+    const ranked = rankDeployments(
+      [dep(1, profitable), dep(2, profitable)],
+      m,
+      'profit'
+    );
+    expect(ranked.map((x) => x.id)).toEqual([2, 1]); // higher uptime → higher EV
+    expect(ranked).toHaveLength(2);
   });
 
   it('default availability strategy is unchanged (GOOD beats DEGRADED despite loss)', () => {

@@ -115,6 +115,46 @@ export function fullMargin(d: ModelDeployment): number | null {
 }
 
 /**
+ * Absolute per-request margin — the money kept on a successful request, in
+ * per-token price units: (sellIn - costIn) + (sellOut - costOut). Sell price is
+ * the same across a model's backends, so this ranks backends by how much profit
+ * each one keeps. Returns null when any price is missing (unpriceable).
+ *
+ * Assumes a balanced input/output token mix (T_in = T_out = 1). Token-weighting
+ * is a deliberate non-goal here: it would only change the ranking for a backend
+ * that is cheaper on input but pricier on output than a rival — real backends
+ * are almost always cheaper (or pricier) on both, where the mix is irrelevant.
+ */
+export function absMargin(d: ModelDeployment): number | null {
+  const specs = (d.model_specs ?? {}) as Record<string, unknown>;
+  const config = (d.config ?? {}) as Record<string, unknown>;
+  const sellIn = toNum(specs.input_cost_per_token);
+  const sellOut = toNum(specs.output_cost_per_token);
+  const costIn = toNum(config.input_cost_per_token);
+  const costOut = toNum(config.output_cost_per_token);
+  if (sellIn == null || sellOut == null || costIn == null || costOut == null) {
+    return null;
+  }
+  return sellIn - costIn + (sellOut - costOut);
+}
+
+// Failure-penalty strength for expected-profit ranking. A failed primary
+// attempt is priced at BETA × the model's best achievable margin M, so a
+// graduated backend at the margin frontier (m = M) is primary-eligible (EV ≥ 0)
+// only when uptime ≥ BETA/(1+BETA): BETA=3 ⇒ ≥0.75, aligned with the 0.7 loss
+// floor. Lower BETA chases margin harder; higher BETA demands more reliability.
+// Single global knob, scale-free across models (penalty normalized by M).
+const BETA = 3;
+
+// Expected realized profit of routing to a backend with success prob p and
+// absolute margin m, given the model's best graduated margin M. Revenue is
+// recovered by failover, so reliability enters only through the failed-attempt
+// penalty (1 − p)·BETA·M (wasted latency/capacity), not as a separate score.
+function expectedValue(m: number, p: number, M: number): number {
+  return p * m - (1 - p) * BETA * M;
+}
+
+/**
  * Cached recent availability for a virtual key (written by
  * MetricsAggregator.refresh), or null if unknown. Read side — mirrors
  * getMetricsForModel. Hot path reads this single number; no CH, no counters.
@@ -206,16 +246,16 @@ function weightedRandomIndex(weights: number[]): number {
 
 /**
  * Profit-first ordering: profitable (margin ≥ PROFIT_MIN_MARGIN) backends
- * first, most reliable (UX) first; loss-making / unpriceable backends last,
- * least-loss first. The failover loop tries the profitable prefix normally and
- * only crosses into the loss suffix under the per-key availability floor (else
- * 429) — see tryWithDeploymentFailover.
+ * first, ranked by EXPECTED PROFIT (EV = p·margin − (1−p)·BETA·M) so the most
+ * profitable backend that is reliable enough wins primary; loss-making /
+ * unpriceable backends last, least-loss first. The failover loop tries the
+ * profitable prefix normally and only crosses into the loss suffix under the
+ * per-key availability floor (else 429) — see tryWithDeploymentFailover.
  */
 function rankProfit(
   deployments: ModelDeployment[],
   metrics: Map<number, DeploymentMetrics>
 ): ModelDeployment[] {
-  const ux = (d: ModelDeployment) => metrics.get(d.id)?.score ?? 0;
   const profitable: ModelDeployment[] = [];
   const lossy: { d: ModelDeployment; margin: number }[] = [];
   for (const d of deployments) {
@@ -223,27 +263,41 @@ function rankProfit(
     if (m != null && m >= PROFIT_MIN_MARGIN) profitable.push(d);
     else lossy.push({ d, margin: m ?? -Infinity }); // unpriceable sorts last
   }
+  const ux = (d: ModelDeployment) => metrics.get(d.id)?.score ?? 0;
   lossy.sort((a, b) =>
     b.margin !== a.margin ? b.margin - a.margin : ux(b.d) - ux(a.d)
   );
 
-  // Primary lottery over the profitable prefix: graduated backends weighted by
-  // UX, cold backends by EXPLORE_WEIGHT so they aren't starved out of the
-  // primary slot. The remaining profitable backends stay UX-ordered for
-  // failover (cold ones, UX 0, fall to the end of the prefix). The lossy suffix
-  // is untouched — its ordering and the per-key loss floor are unchanged.
+  // Within the profitable prefix, rank by EXPECTED PROFIT, not reliability: a
+  // reliable high-margin backend now wins primary (the margin profit the old
+  // UX-only ranking left on the table), while an unreliable-but-profitable
+  // backend (EV ≤ 0) is kept out of primary whenever a higher-EV graduated or a
+  // cold backend can take the slot — only when every graduated backend is
+  // unreliable (all EV ≤ 0) and there is no cold explorer does the least-bad EV
+  // become primary, since traffic must still go somewhere. Primary = argmax EV
+  // (concentrate on the most profitable backend; its 429 overflow fails over to
+  // the next). Cold profitable backends still get a small EXPLORE_WEIGHT shot at
+  // primary so they accumulate samples. The lossy suffix and loss floor are
+  // untouched.
+  const graduated = profitable.filter((d) => !isCold(metrics.get(d.id)));
+  const cold = profitable.filter((d) => isCold(metrics.get(d.id)));
+
+  const M = graduated.reduce((mx, d) => Math.max(mx, absMargin(d) ?? 0), 0);
+  const ev = (d: ModelDeployment) =>
+    expectedValue(absMargin(d) ?? 0, metrics.get(d.id)!.uptime!, M);
+  graduated.sort((a, b) => ev(b) - ev(a));
+
   let profitablePrefix: ModelDeployment[];
-  if (profitable.length <= 1) {
-    profitablePrefix = profitable;
+  if (cold.length === 0) {
+    profitablePrefix = graduated; // primary = highest-EV, deterministic
   } else {
-    const weights = profitable.map((d) =>
-      lotteryWeight(metrics.get(d.id), ux(d))
-    );
-    const primaryIdx = weightedRandomIndex(weights);
-    const primary = profitable[primaryIdx];
-    const rest = profitable
-      .filter((_, i) => i !== primaryIdx)
-      .sort((a, b) => ux(b) - ux(a));
+    const best = graduated[0]; // undefined when every profitable backend is cold
+    const contenders = best ? [best, ...cold] : cold;
+    // best normalized to weight 1: EV is in money units, so mixing raw EV with
+    // the 0.05 explore weight would be unit-inconsistent. Each cold backend ~5%.
+    const weights = contenders.map((d) => (d === best ? 1 : EXPLORE_WEIGHT));
+    const primary = contenders[weightedRandomIndex(weights)];
+    const rest = [...graduated, ...cold].filter((d) => d !== primary);
     profitablePrefix = [primary, ...rest];
   }
 
