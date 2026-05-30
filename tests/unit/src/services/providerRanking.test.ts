@@ -75,10 +75,10 @@ describe('rankDeployments', () => {
     expect(rankDeployments(d, new Map())).toEqual(d);
   });
 
-  it('treats deployments with no metrics as INSUFFICIENT_DATA (fail-open)', () => {
-    // Empty metrics map → everything is INSUFFICIENT_DATA → weighted random by
-    // config.weight. We don't assert a specific primary (it's random), but the
-    // ranked list must contain exactly the same deployments.
+  it('treats deployments with no metrics as cold (fail-open, all kept)', () => {
+    // Empty metrics map → everything is cold → folded into the GOOD primary
+    // lottery with EXPLORE_WEIGHT. We don't assert a specific primary (it's
+    // random), but the ranked list must contain exactly the same deployments.
     const d = [dep(1), dep(2), dep(3)];
     const ranked = rankDeployments(d, new Map());
     expect(new Set(ranked.map((x) => x.id))).toEqual(new Set([1, 2, 3]));
@@ -111,17 +111,85 @@ describe('rankDeployments', () => {
     expect(ids[3]).toBe(1);
   });
 
-  it('places INSUFFICIENT_DATA between GOOD and DEGRADED (new providers get traffic to learn)', () => {
+  it('gives a cold backend a small non-zero primary share, never sinking it below DEGRADED', () => {
+    // id 2 has no metrics → cold → joins the GOOD lottery with EXPLORE_WEIGHT.
+    // GOOD incumbent (id 1) wins most of the time; cold gets a bounded slice;
+    // DEGRADED (id 3) is never primary and is always last.
     const d = [dep(1), dep(2), dep(3)];
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'GOOD', score: 0.9 })],
-      // id 2 has no metrics → INSUFFICIENT_DATA via default
       [3, metric({ tier: 'DEGRADED', score: 0.5 })],
     ]);
 
+    const tally = new Map<number, number>([
+      [1, 0],
+      [2, 0],
+      [3, 0],
+    ]);
+    const N = 3000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(d, m);
+      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+      // DEGRADED is always last; the cold backend never sinks below it.
+      expect(ranked[2].id).toBe(3);
+    }
+    // Cold backend gets a bounded, non-zero share of primary (~5-6%).
+    expect(tally.get(2)!).toBeGreaterThan(0);
+    expect(tally.get(2)! / N).toBeLessThan(0.15);
+    // Healthy GOOD incumbent still wins the large majority.
+    expect(tally.get(1)!).toBeGreaterThan(tally.get(2)!);
+    // DEGRADED never becomes primary while the GOOD/cold pool is non-empty.
+    expect(tally.get(3)!).toBe(0);
+  });
+
+  it('ignores a cold backend high (lucky) score — only EXPLORE_WEIGHT, no landslide', () => {
+    // A cold backend whose few requests all happened to succeed could carry a
+    // high score, but uptime=null (below MIN_SAMPLE) means that estimate is not
+    // trusted: it gets only EXPLORE_WEIGHT share, never the ~50% a 0.95 score
+    // would imply. Guards against routing weighting cold backends by score.
+    const d = [dep(1), dep(2)];
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.85 })],
+      [2, metric({ tier: 'INSUFFICIENT_DATA', score: 0.95, uptime: null })],
+    ]);
+    const tally = new Map<number, number>([
+      [1, 0],
+      [2, 0],
+    ]);
+    const N = 3000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(d, m);
+      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+    }
+    expect(tally.get(2)!).toBeGreaterThan(0);
+    expect(tally.get(2)! / N).toBeLessThan(0.15);
+  });
+
+  it('keeps a cold backend primary above DEGRADED when no GOOD exists (preserves prior behavior)', () => {
+    const d = [dep(1), dep(2)];
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'DEGRADED', score: 0.6 })],
+      // id 2 cold (no metrics) → sole member of the GOOD lottery pool
+    ]);
     const ranked = rankDeployments(d, m);
-    const ids = ranked.map((x) => x.id);
-    expect(ids).toEqual([1, 2, 3]);
+    // Cold is the only GOOD-pool member → primary; DEGRADED follows.
+    expect(ranked.map((x) => x.id)).toEqual([2, 1]);
+  });
+
+  it('never drops an INSUFFICIENT_DATA-tier deployment, even if its uptime looks set', () => {
+    // Defensive: tier and uptime always agree in practice, but routing must not
+    // silently drop a deployment if they ever diverge. INSUFFICIENT_DATA is
+    // always treated as cold → present in the output, never bucketed into a
+    // tier absent from TIER_ORDER.
+    const d = [dep(1), dep(2)];
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.9 })],
+      // Inconsistent on purpose: INSUFFICIENT_DATA tier but a non-null uptime.
+      [2, metric({ tier: 'INSUFFICIENT_DATA', score: 0.5, uptime: 0.99 })],
+    ]);
+    const ranked = rankDeployments(d, m);
+    expect(new Set(ranked.map((x) => x.id))).toEqual(new Set([1, 2]));
+    expect(ranked).toHaveLength(2);
   });
 
   it('orders DEGRADED/FALLBACK_ONLY deterministically by descending score', () => {
@@ -286,7 +354,9 @@ describe('rankDeployments with margin signal', () => {
       [2, 0],
       [3, 0],
     ]);
-    const N = 2000;
+    // Large N: the adjacent share gaps (~4pp between profitable/neutral/lossy)
+    // need enough trials that the strict ordering assertions don't flake.
+    const N = 10000;
     for (let i = 0; i < N; i++) {
       const ranked = rankDeployments([profitable, neutral, lossy], m);
       tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
@@ -406,17 +476,52 @@ describe('rankDeployments — profit strategy', () => {
     expect(ranked.map((x) => x.id)).toEqual([1, 2]);
   });
 
-  it('orders profitable backends by UX descending', () => {
+  it('weights the profitable primary by UX (higher UX wins more often, neither starves)', () => {
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'GOOD', score: 0.6 })],
       [2, metric({ tier: 'GOOD', score: 0.9 })],
     ]);
-    const ranked = rankDeployments(
-      [dep(1, profitable), dep(2, profitable)],
-      m,
-      'profit'
-    );
-    expect(ranked.map((x) => x.id)).toEqual([2, 1]);
+    const tally = new Map<number, number>([
+      [1, 0],
+      [2, 0],
+    ]);
+    const N = 2000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(
+        [dep(1, profitable), dep(2, profitable)],
+        m,
+        'profit'
+      );
+      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+    }
+    // Both profitable + graduated → UX-weighted primary: id 2 (0.9) wins more
+    // than id 1 (0.6), but id 1 is not starved.
+    expect(tally.get(2)!).toBeGreaterThan(tally.get(1)!);
+    expect(tally.get(1)!).toBeGreaterThan(0);
+  });
+
+  it('explores only profitable cold backends, never lossy ones', () => {
+    // graduated profitable incumbent + cold profitable + cold lossy.
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.9 })],
+      [2, metric({ tier: 'INSUFFICIENT_DATA', score: 0, uptime: null })],
+      [3, metric({ tier: 'INSUFFICIENT_DATA', score: 0, uptime: null })],
+    ]);
+    const seenPrimary = new Set<number>();
+    const N = 2000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(
+        [dep(1, profitable), dep(2, profitable), dep(3, lossy)],
+        m,
+        'profit'
+      );
+      seenPrimary.add(ranked[0].id);
+      // The lossy backend stays in the suffix (last), never primary.
+      expect(ranked[ranked.length - 1].id).toBe(3);
+    }
+    expect(seenPrimary.has(3)).toBe(false); // lossy cold never explored
+    expect(seenPrimary.has(2)).toBe(true); // profitable cold does get explored
+    expect(seenPrimary.has(1)).toBe(true);
   });
 
   it('default availability strategy is unchanged (GOOD beats DEGRADED despite loss)', () => {

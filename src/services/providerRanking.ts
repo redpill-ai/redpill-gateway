@@ -59,6 +59,33 @@ export type RoutingStrategy = 'availability' | 'profit';
 // (0 = break-even). Loss-making backends are last-resort fallback only.
 export const PROFIT_MIN_MARGIN = 0;
 
+// Fixed primary-lottery weight for a cold deployment (see isCold). Small and
+// flat: it buys an unproven backend a bounded, single-digit-% share of primary
+// traffic so it accumulates samples and graduates instead of starving at the
+// bottom forever — while its own noisy point estimate is ignored, so a lucky
+// all-success small sample can't catapult it to primary.
+const EXPLORE_WEIGHT = 0.05;
+
+// A deployment is "cold" when it has no trustworthy uptime yet: no metrics, a
+// null uptime (below MIN_SAMPLE even after the 24h fallback), or the
+// INSUFFICIENT_DATA tier. tier and uptime are produced together and always
+// agree, but keying on BOTH is deliberate: it guarantees an INSUFFICIENT_DATA
+// deployment is always treated as cold (→ GOOD lottery) and can never be bucketed
+// into a tier absent from TIER_ORDER, which would silently drop it from routing.
+function isCold(m: DeploymentMetrics | undefined): boolean {
+  return m == null || m.uptime == null || m.tier === 'INSUFFICIENT_DATA';
+}
+
+// Shared cold-vs-graduated primary-lottery weight, used by both strategies.
+// Graduated deployments use their real weight (UX for profit, finalScore-based
+// for availability); cold ones get the fixed exploration allowance.
+function lotteryWeight(
+  m: DeploymentMetrics | undefined,
+  graduatedWeight: number
+): number {
+  return isCold(m) ? EXPLORE_WEIGHT : graduatedWeight;
+}
+
 function toNum(v: unknown): number | null {
   if (v == null || v === '') return null;
   const n = Number(v);
@@ -164,12 +191,7 @@ export async function getMetricsForModel(
   }
 }
 
-const TIER_ORDER: DeploymentTier[] = [
-  'GOOD',
-  'INSUFFICIENT_DATA',
-  'DEGRADED',
-  'FALLBACK_ONLY',
-];
+const TIER_ORDER: DeploymentTier[] = ['GOOD', 'DEGRADED', 'FALLBACK_ONLY'];
 
 function weightedRandomIndex(weights: number[]): number {
   const total = weights.reduce((a, b) => a + b, 0);
@@ -201,11 +223,31 @@ function rankProfit(
     if (m != null && m >= PROFIT_MIN_MARGIN) profitable.push(d);
     else lossy.push({ d, margin: m ?? -Infinity }); // unpriceable sorts last
   }
-  profitable.sort((a, b) => ux(b) - ux(a));
   lossy.sort((a, b) =>
     b.margin !== a.margin ? b.margin - a.margin : ux(b.d) - ux(a.d)
   );
-  return [...profitable, ...lossy.map((x) => x.d)];
+
+  // Primary lottery over the profitable prefix: graduated backends weighted by
+  // UX, cold backends by EXPLORE_WEIGHT so they aren't starved out of the
+  // primary slot. The remaining profitable backends stay UX-ordered for
+  // failover (cold ones, UX 0, fall to the end of the prefix). The lossy suffix
+  // is untouched — its ordering and the per-key loss floor are unchanged.
+  let profitablePrefix: ModelDeployment[];
+  if (profitable.length <= 1) {
+    profitablePrefix = profitable;
+  } else {
+    const weights = profitable.map((d) =>
+      lotteryWeight(metrics.get(d.id), ux(d))
+    );
+    const primaryIdx = weightedRandomIndex(weights);
+    const primary = profitable[primaryIdx];
+    const rest = profitable
+      .filter((_, i) => i !== primaryIdx)
+      .sort((a, b) => ux(b) - ux(a));
+    profitablePrefix = [primary, ...rest];
+  }
+
+  return [...profitablePrefix, ...lossy.map((x) => x.d)];
 }
 
 export function rankDeployments(
@@ -219,7 +261,8 @@ export function rankDeployments(
 
   type Decorated = {
     d: ModelDeployment;
-    tier: DeploymentTier;
+    m: DeploymentMetrics | undefined;
+    bucket: DeploymentTier;
     score: number;
     weight: number;
   };
@@ -227,9 +270,15 @@ export function rankDeployments(
   const decorated: Decorated[] = deployments.map((d) => {
     const m = metrics.get(d.id);
     const uxScore = m?.score ?? 0;
+    // Cold deployments (no trustworthy uptime yet, or no metrics at all) join
+    // the GOOD primary lottery with a small exploration weight instead of being
+    // parked in a lower tier where a healthy incumbent would starve them.
+    // Graduated deployments keep their real tier (always one of TIER_ORDER).
+    const bucket: DeploymentTier = isCold(m) ? 'GOOD' : m!.tier;
     return {
       d,
-      tier: m?.tier ?? 'INSUFFICIENT_DATA',
+      m,
+      bucket,
       score: finalScore(d, uxScore),
       weight: d.config?.weight ?? 1,
     };
@@ -237,9 +286,9 @@ export function rankDeployments(
 
   const byTier = new Map<DeploymentTier, Decorated[]>();
   for (const item of decorated) {
-    const list = byTier.get(item.tier) ?? [];
+    const list = byTier.get(item.bucket) ?? [];
     list.push(item);
-    byTier.set(item.tier, list);
+    byTier.set(item.bucket, list);
   }
 
   const result: ModelDeployment[] = [];
@@ -253,22 +302,20 @@ export function rankDeployments(
     }
 
     if (tier === 'GOOD') {
-      // Weighted random for the primary slot (use score, fall back to config.weight)
-      const weights = list.map((x) => (x.score > 0 ? x.score : x.weight));
+      // Weighted-random primary over graduated-GOOD (real weight: score, or
+      // config.weight when score collapsed to 0) ∪ cold backends (EXPLORE_WEIGHT).
+      // When no graduated-GOOD exists the pool is just the cold backends — they
+      // become primary above DEGRADED, exactly as the old INSUFFICIENT_DATA tier
+      // did. The rest stay weight-ordered for failover (cold, weight 0.05, sink
+      // below graduated-GOOD).
+      const w = (x: Decorated) =>
+        lotteryWeight(x.m, x.score > 0 ? x.score : x.weight);
+      const weights = list.map(w);
       const primaryIdx = weightedRandomIndex(weights);
       const primary = list[primaryIdx];
       const rest = list
         .filter((_, i) => i !== primaryIdx)
-        .sort((a, b) => b.score - a.score);
-      result.push(primary.d, ...rest.map((x) => x.d));
-    } else if (tier === 'INSUFFICIENT_DATA') {
-      // No metric signal yet; let traffic flow per config.weight so we learn
-      const weights = list.map((x) => x.weight);
-      const primaryIdx = weightedRandomIndex(weights);
-      const primary = list[primaryIdx];
-      const rest = list
-        .filter((_, i) => i !== primaryIdx)
-        .sort((a, b) => b.weight - a.weight);
+        .sort((a, b) => w(b) - w(a));
       result.push(primary.d, ...rest.map((x) => x.d));
     } else {
       // DEGRADED / FALLBACK_ONLY — deterministic best-of-the-rest

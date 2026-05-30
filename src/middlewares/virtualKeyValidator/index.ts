@@ -117,8 +117,9 @@ const createVirtualKeyContext = async (
   // Metric-driven primary selection: rankDeployments uses MetricsAggregator's
   // 6h Redis state (UX score) blended with margin computed from each
   // deployment's config + model_specs. When metrics are absent (fresh deploy,
-  // cleared Redis) deployments fall to INSUFFICIENT_DATA tier and routing
-  // degrades gracefully to config.weight-based weighted random.
+  // cleared Redis) deployments are treated as cold and fold into the GOOD
+  // primary lottery with a small fixed EXPLORE_WEIGHT, so they get a bounded
+  // share of traffic to accumulate samples and graduate instead of starving.
   //
   // Metrics are keyed by canonical `models.model_id`, not the raw client
   // string — same physical deployments must share one metric set regardless
