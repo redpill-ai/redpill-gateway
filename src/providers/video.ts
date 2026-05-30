@@ -1,6 +1,6 @@
 import { ProviderConfig } from './types';
 
-export const VideoQueueConfig: ProviderConfig = {
+export const VideoSubmitConfig: ProviderConfig = {
   model: {
     param: 'model',
     required: true,
@@ -58,34 +58,6 @@ export const VideoQueueConfig: ProviderConfig = {
   },
 };
 
-export const VideoQuoteConfig: ProviderConfig = {
-  model: {
-    param: 'model',
-    required: true,
-  },
-  duration: {
-    param: 'duration',
-  },
-  aspect_ratio: {
-    param: 'aspect_ratio',
-  },
-  resolution: {
-    param: 'resolution',
-  },
-  upscale_factor: {
-    param: 'upscale_factor',
-  },
-  audio: {
-    param: 'audio',
-  },
-  video_url: {
-    param: 'video_url',
-  },
-  reference_video_total_duration: {
-    param: 'reference_video_total_duration',
-  },
-};
-
 export const VideoRetrieveConfig: ProviderConfig = {
   model: {
     param: 'model',
@@ -100,7 +72,7 @@ export const VideoRetrieveConfig: ProviderConfig = {
   },
 };
 
-export const VideoCompleteConfig: ProviderConfig = {
+export const VideoFileFetchConfig: ProviderConfig = {
   model: {
     param: 'model',
     required: true,
@@ -109,6 +81,24 @@ export const VideoCompleteConfig: ProviderConfig = {
     param: 'queue_id',
     required: true,
   },
+};
+
+export const VideoSubmitResponseTransform = <T extends any>(
+  response: T,
+  _responseStatus: number
+): T => {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'id' in response &&
+    !('queue_id' in response)
+  ) {
+    return {
+      ...response,
+      queue_id: response.id,
+    };
+  }
+  return response;
 };
 
 export const VideoResponseTransform = <T>(

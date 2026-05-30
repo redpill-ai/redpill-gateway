@@ -52,11 +52,11 @@ import {
   OpenAIToAnthropicMessagesStreamTransform,
 } from '../openai-to-anthropic';
 import {
-  VideoCompleteConfig,
-  VideoQueueConfig,
-  VideoQuoteConfig,
+  VideoFileFetchConfig,
   VideoResponseTransform,
   VideoRetrieveConfig,
+  VideoSubmitResponseTransform,
+  VideoSubmitConfig,
 } from '../video';
 
 const OpenAIConfig: ProviderConfigs = {
@@ -66,10 +66,9 @@ const OpenAIConfig: ProviderConfigs = {
   chatComplete: OpenAIChatCompleteConfig,
   messages: OpenAIToAnthropicMessagesConfig,
   imageGenerate: OpenAIImageGenerateConfig,
-  queueVideo: VideoQueueConfig,
+  submitVideo: VideoSubmitConfig,
   retrieveVideo: VideoRetrieveConfig,
-  quoteVideo: VideoQuoteConfig,
-  completeVideo: VideoCompleteConfig,
+  fetchVideoFile: VideoFileFetchConfig,
   createSpeech: OpenAICreateSpeechConfig,
   createTranscription: {},
   createTranslation: {},
@@ -94,10 +93,9 @@ const OpenAIConfig: ProviderConfigs = {
     chatComplete: OpenAIChatCompleteResponseTransform,
     // 'stream-chatComplete': OpenAIChatCompleteResponseTransform,
     imageGenerate: OpenAIImageGenerateResponseTransform,
-    queueVideo: VideoResponseTransform,
+    submitVideo: VideoSubmitResponseTransform,
     retrieveVideo: VideoResponseTransform,
-    quoteVideo: VideoResponseTransform,
-    completeVideo: VideoResponseTransform,
+    fetchVideoFile: VideoResponseTransform,
     createSpeech: OpenAICreateSpeechResponseTransform,
     createTranscription: OpenAICreateTranscriptionResponseTransform,
     createTranslation: OpenAICreateTranslationResponseTransform,

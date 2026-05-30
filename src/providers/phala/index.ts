@@ -9,11 +9,11 @@ import {
   OpenAIToAnthropicMessagesStreamTransform,
 } from '../openai-to-anthropic';
 import {
-  VideoCompleteConfig,
-  VideoQueueConfig,
-  VideoQuoteConfig,
+  VideoFileFetchConfig,
   VideoResponseTransform,
   VideoRetrieveConfig,
+  VideoSubmitResponseTransform,
+  VideoSubmitConfig,
 } from '../video';
 
 const PhalaConfig: ProviderConfigs = {
@@ -21,18 +21,16 @@ const PhalaConfig: ProviderConfigs = {
   embed: PhalaEmbedConfig,
   chatComplete: PhalaChatCompleteConfig,
   messages: OpenAIToAnthropicMessagesConfig,
-  queueVideo: VideoQueueConfig,
+  submitVideo: VideoSubmitConfig,
   retrieveVideo: VideoRetrieveConfig,
-  quoteVideo: VideoQuoteConfig,
-  completeVideo: VideoCompleteConfig,
+  fetchVideoFile: VideoFileFetchConfig,
   api: PhalaApiConfig,
   responseTransforms: {
     messages: OpenAIToAnthropicMessagesResponseTransform,
     'stream-messages': OpenAIToAnthropicMessagesStreamTransform,
-    queueVideo: VideoResponseTransform,
+    submitVideo: VideoSubmitResponseTransform,
     retrieveVideo: VideoResponseTransform,
-    quoteVideo: VideoResponseTransform,
-    completeVideo: VideoResponseTransform,
+    fetchVideoFile: VideoResponseTransform,
   },
 };
 

@@ -42,7 +42,11 @@ import {
   cacheRefreshHandler,
   modelRateLimitConfigCacheClearHandler,
 } from './handlers/adminHandler';
-import videoHandler from './handlers/videoHandler';
+import videoHandler, {
+  videoCompleteHandler,
+  videoQuoteHandler,
+  videoRequestFromPath,
+} from './handlers/videoHandler';
 
 // Config
 import conf from '../conf.json';
@@ -185,25 +189,43 @@ app.post(
   '/v1/video/queue',
   virtualKeyValidator,
   rateLimiter,
-  videoHandler('queueVideo', 'POST')
+  videoHandler('submitVideo', 'POST')
 );
 app.post(
   '/v1/video/retrieve',
   virtualKeyValidator,
   rateLimiter,
-  videoHandler('retrieveVideo', 'POST')
+  videoHandler('retrieveVideo', 'GET')
 );
 app.post(
   '/v1/video/quote',
   virtualKeyValidator,
   rateLimiter,
-  videoHandler('quoteVideo', 'POST')
+  videoQuoteHandler
 );
 app.post(
   '/v1/video/complete',
   virtualKeyValidator,
   rateLimiter,
-  videoHandler('completeVideo', 'POST')
+  videoCompleteHandler
+);
+app.post(
+  '/v1/videos',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('submitVideo', 'POST')
+);
+app.get(
+  '/v1/videos/:id/file',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('fetchVideoFile', 'GET', videoRequestFromPath)
+);
+app.get(
+  '/v1/videos/:id',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('retrieveVideo', 'GET', videoRequestFromPath)
 );
 
 /**

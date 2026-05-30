@@ -1,9 +1,5 @@
 import PhalaApiConfig from '../phala/api';
-import {
-  VideoQueueConfig,
-  VideoQuoteConfig,
-  VideoRetrieveConfig,
-} from '../video';
+import { VideoRetrieveConfig, VideoSubmitConfig } from '../video';
 import { Params } from '../../types/requestBody';
 import { Options } from '../../types/requestBody';
 
@@ -31,26 +27,25 @@ describe('video provider format', () => {
     const baseArgs = {
       c: {} as any,
       providerOptions: { provider: 'phala', apiKey: 'test-key' },
-      gatewayRequestBodyJSON: {},
       gatewayRequestBody: {},
-      gatewayRequestURL: 'https://gateway.example.com/v1/video/queue',
+      gatewayRequestBodyJSON: {
+        id: 'video-job-123',
+      },
+      gatewayRequestURL: 'https://gateway.example.com/v1/videos',
     };
 
-    expect(PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'queueVideo' })).toBe(
-      '/video/queue'
+    expect(PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'submitVideo' })).toBe(
+      '/v1/videos'
     );
     expect(
       PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'retrieveVideo' })
-    ).toBe('/video/retrieve');
-    expect(PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'quoteVideo' })).toBe(
-      '/video/quote'
-    );
+    ).toBe('/v1/videos/video-job-123');
     expect(
-      PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'completeVideo' })
-    ).toBe('/video/complete');
+      PhalaApiConfig.getEndpoint({ ...baseArgs, fn: 'fetchVideoFile' })
+    ).toBe('/v1/videos/video-job-123/file');
   });
 
-  it('passes video queue fields through without provider-specific rewrites', () => {
+  it('passes video submit fields through without provider-specific rewrites', () => {
     const request = {
       model: 'seedance-2-0-reference-to-video',
       prompt: 'Refer to <Subject 1> in <Image 1> walking at night.',
@@ -73,37 +68,10 @@ describe('video provider format', () => {
     };
 
     expect(
-      transform(VideoQueueConfig, request, {
+      transform(VideoSubmitConfig, request, {
         provider: 'phala',
       })
     ).toEqual(request);
-  });
-
-  it('keeps quote requests limited to pricing inputs', () => {
-    const request = {
-      model: 'seedance-2-0-text-to-video',
-      duration: '5s',
-      aspect_ratio: '16:9',
-      resolution: '720p',
-      upscale_factor: 2,
-      audio: true,
-      video_url: 'data:video/mp4;base64,abc',
-      prompt: 'ignored for quote',
-    };
-
-    expect(
-      transform(VideoQuoteConfig, request, {
-        provider: 'phala',
-      })
-    ).toEqual({
-      model: request.model,
-      duration: request.duration,
-      aspect_ratio: request.aspect_ratio,
-      resolution: request.resolution,
-      upscale_factor: request.upscale_factor,
-      audio: request.audio,
-      video_url: request.video_url,
-    });
   });
 
   it('maps retrieve by model, queue_id, and cleanup preference', () => {
