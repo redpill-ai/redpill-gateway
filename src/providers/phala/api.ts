@@ -15,6 +15,14 @@ const PhalaApiConfig: ProviderAPIConfig = {
         return '/embeddings';
       case 'messages':
         return '/chat/completions';
+      case 'queueVideo':
+        return '/video/queue';
+      case 'retrieveVideo':
+        return '/video/retrieve';
+      case 'quoteVideo':
+        return '/video/quote';
+      case 'completeVideo':
+        return '/video/complete';
       default:
         return '';
     }

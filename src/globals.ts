@@ -188,6 +188,7 @@ export const CONTENT_TYPES = {
   PLAIN_TEXT: 'text/plain',
   HTML: 'text/html',
   GENERIC_IMAGE_PATTERN: 'image/',
+  GENERIC_VIDEO_PATTERN: 'video/',
 };
 
 export const MULTIPART_FORM_DATA_ENDPOINTS: endpointStrings[] = [

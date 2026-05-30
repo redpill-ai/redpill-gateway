@@ -38,6 +38,14 @@ const OpenAIAPIConfig: ProviderAPIConfig = {
         return '/embeddings';
       case 'imageGenerate':
         return '/images/generations';
+      case 'queueVideo':
+        return '/video/queue';
+      case 'retrieveVideo':
+        return '/video/retrieve';
+      case 'quoteVideo':
+        return '/video/quote';
+      case 'completeVideo':
+        return '/video/complete';
       case 'createSpeech':
         return '/audio/speech';
       case 'createTranscription':

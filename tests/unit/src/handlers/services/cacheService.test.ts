@@ -67,6 +67,10 @@ describe('CacheService', () => {
       expect(cacheService.isEndpointCacheable('createFinetune')).toBe(false);
       expect(cacheService.isEndpointCacheable('retrieveFinetune')).toBe(false);
       expect(cacheService.isEndpointCacheable('cancelFinetune')).toBe(false);
+      expect(cacheService.isEndpointCacheable('queueVideo')).toBe(false);
+      expect(cacheService.isEndpointCacheable('retrieveVideo')).toBe(false);
+      expect(cacheService.isEndpointCacheable('quoteVideo')).toBe(false);
+      expect(cacheService.isEndpointCacheable('completeVideo')).toBe(false);
     });
   });
 

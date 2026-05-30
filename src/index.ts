@@ -42,6 +42,7 @@ import {
   cacheRefreshHandler,
   modelRateLimitConfigCacheClearHandler,
 } from './handlers/adminHandler';
+import videoHandler from './handlers/videoHandler';
 
 // Config
 import conf from '../conf.json';
@@ -176,6 +177,34 @@ app.post('/v1/embeddings', virtualKeyValidator, rateLimiter, embeddingsHandler);
  * Handles requests by passing them to the imageGenerations handler.
  */
 app.post('/v1/images/generations', requestValidator, imageGenerationsHandler);
+
+/**
+ * POST routes for async video generation.
+ */
+app.post(
+  '/v1/video/queue',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('queueVideo', 'POST')
+);
+app.post(
+  '/v1/video/retrieve',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('retrieveVideo', 'POST')
+);
+app.post(
+  '/v1/video/quote',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('quoteVideo', 'POST')
+);
+app.post(
+  '/v1/video/complete',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('completeVideo', 'POST')
+);
 
 /**
  * POST route for '/v1/audio/speech'.
