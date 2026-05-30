@@ -93,32 +93,19 @@ function toNum(v: unknown): number | null {
 }
 
 /**
- * Full per-(1 input + 1 output token) margin for profit eligibility:
- *   ((sellIn - costIn) + (sellOut - costOut)) / (costIn + costOut)
- * Returns null when any price is missing/unparseable or total cost <= 0 —
- * callers treat null as "not profit-eligible" (don't route profit traffic to a
- * backend we can't price).
- */
-export function fullMargin(d: ModelDeployment): number | null {
-  const specs = (d.model_specs ?? {}) as Record<string, unknown>;
-  const config = (d.config ?? {}) as Record<string, unknown>;
-  const sellIn = toNum(specs.input_cost_per_token);
-  const sellOut = toNum(specs.output_cost_per_token);
-  const costIn = toNum(config.input_cost_per_token);
-  const costOut = toNum(config.output_cost_per_token);
-  if (sellIn == null || sellOut == null || costIn == null || costOut == null) {
-    return null;
-  }
-  const costSum = costIn + costOut;
-  if (costSum <= 0) return null;
-  return (sellIn - costIn + (sellOut - costOut)) / costSum;
-}
-
-/**
  * Absolute per-request margin — the money kept on a successful request, in
  * per-token price units: (sellIn - costIn) + (sellOut - costOut). Sell price is
- * the same across a model's backends, so this ranks backends by how much profit
- * each one keeps. Returns null when any price is missing (unpriceable).
+ * the same across a model's backends, so this both gates profit eligibility
+ * (m >= PROFIT_MIN_MARGIN) and ranks backends by how much profit each one keeps.
+ * Returns null only when a price is missing/unparseable (unpriceable) — callers
+ * treat null as not profit-eligible (don't route profit traffic to a backend we
+ * can't price).
+ *
+ * Absolute, not a margin *ratio*: the ratio divides by cost, so a genuinely
+ * zero-cost backend (self-hosted, marginal cost ~0 — the MOST profitable case)
+ * would hit a div-by-zero and be misclassified as unpriceable → routed last.
+ * The absolute margin has no such singularity: cost 0 simply yields margin =
+ * sell, the model's highest, so a free backend correctly wins the primary slot.
  *
  * Assumes a balanced input/output token mix (T_in = T_out = 1). Token-weighting
  * is a deliberate non-goal here: it would only change the ranking for a backend
@@ -259,7 +246,7 @@ function rankProfit(
   const profitable: ModelDeployment[] = [];
   const lossy: { d: ModelDeployment; margin: number }[] = [];
   for (const d of deployments) {
-    const m = fullMargin(d);
+    const m = absMargin(d);
     if (m != null && m >= PROFIT_MIN_MARGIN) profitable.push(d);
     else lossy.push({ d, margin: m ?? -Infinity }); // unpriceable sorts last
   }

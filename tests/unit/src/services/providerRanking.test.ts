@@ -1,6 +1,6 @@
 import {
+  absMargin,
   finalScore,
-  fullMargin,
   marginScore,
   rankDeployments,
   shouldRejectForProfit,
@@ -391,11 +391,11 @@ describe('rankDeployments with margin signal', () => {
   });
 });
 
-describe('fullMargin', () => {
-  it('combines input + output per-token margin', () => {
-    // ((1.21-1.2)+(4.2-4.0)) / (1.2+4.0) = 0.21/5.2 = 0.0404
+describe('absMargin', () => {
+  it('combines input + output per-token margin (absolute, no division)', () => {
+    // (1.21-1.2)+(4.2-4.0) = 0.01 + 0.2 = 0.21 (×1e-6)
     expect(
-      fullMargin(
+      absMargin(
         dep(1, {
           sellInput: '1.21e-6',
           sellOutput: '4.2e-6',
@@ -403,12 +403,12 @@ describe('fullMargin', () => {
           costOutput: '4.0e-6',
         })
       )
-    ).toBeCloseTo(0.0404, 3);
+    ).toBeCloseTo(0.21e-6, 9);
   });
 
   it('is negative when sell < cost', () => {
     expect(
-      fullMargin(
+      absMargin(
         dep(1, {
           sellInput: '1.21e-6',
           sellOutput: '4.2e-6',
@@ -416,15 +416,19 @@ describe('fullMargin', () => {
           costOutput: '5.25e-6',
         })
       )
-    ).toBeCloseTo(-0.199, 3);
+    ).toBeLessThan(0);
   });
 
-  it('returns null when a price is missing or total cost is 0', () => {
+  it('returns null only when a price is missing/unparseable (NOT when cost is 0)', () => {
+    // Missing output price → unpriceable.
     expect(
-      fullMargin(dep(1, { sellInput: '1e-6', costInput: '1e-6' }))
+      absMargin(dep(1, { sellInput: '1e-6', costInput: '1e-6' }))
     ).toBeNull();
+    // Zero cost is a real (free) backend, not unpriceable: margin = full sell
+    // price, the highest possible. This is the self-hosted case the old
+    // fullMargin ratio mishandled (div-by-zero → null → routed last).
     expect(
-      fullMargin(
+      absMargin(
         dep(1, {
           sellInput: '1e-6',
           sellOutput: '1e-6',
@@ -432,7 +436,7 @@ describe('fullMargin', () => {
           costOutput: '0',
         })
       )
-    ).toBeNull();
+    ).toBeCloseTo(2e-6, 9);
   });
 });
 
@@ -470,6 +474,29 @@ describe('rankDeployments — profit strategy', () => {
     ]);
     const ranked = rankDeployments(
       [dep(2, lossy), dep(1, profitable)],
+      m,
+      'profit'
+    );
+    expect(ranked.map((x) => x.id)).toEqual([1, 2]);
+  });
+
+  it('treats a zero-cost self-hosted backend as the highest margin, not unpriceable', () => {
+    // Self-hosted (id 1) has cost 0 → absMargin = full sell price, the highest;
+    // id 2 is a positive-but-lower-margin external backend. Both reliable. The
+    // free backend must win primary, NOT be misclassified as unpriceable and
+    // dumped to the loss suffix (the old fullMargin ratio's div-by-zero bug).
+    const selfHosted = {
+      sellInput: '1.3e-6',
+      sellOutput: '1.3e-6',
+      costInput: '0',
+      costOutput: '0',
+    };
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.5, uptime: 0.98 })],
+      [2, metric({ tier: 'GOOD', score: 0.95, uptime: 0.98 })],
+    ]);
+    const ranked = rankDeployments(
+      [dep(2, profitable), dep(1, selfHosted)],
       m,
       'profit'
     );

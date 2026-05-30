@@ -35,7 +35,7 @@ import { HookType } from '../middlewares/hooks/types';
 import { type ModelDeployment } from '../db/postgres/model';
 import { type VirtualKeyContext } from '../middlewares/virtualKeyValidator';
 import {
-  fullMargin,
+  absMargin,
   getKeyAvailability,
   PROFIT_MIN_MARGIN,
   shouldRejectForProfit,
@@ -1517,7 +1517,7 @@ export async function tryWithDeploymentFailover(
     // key still has availability headroom above its floor, 429 rather than
     // serve at a loss; otherwise serve via the least-loss backend. Decided once.
     if (isProfit && profitKeyId != null && !lossServeAllowed) {
-      const margin = fullMargin(deployment);
+      const margin = absMargin(deployment);
       const lossMaking = margin == null || margin < PROFIT_MIN_MARGIN;
       if (lossMaking) {
         const availability = await getKeyAvailability(
