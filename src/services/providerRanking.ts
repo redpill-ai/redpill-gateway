@@ -371,24 +371,22 @@ const isE2eeProvider = (d: ModelDeployment): boolean =>
   (E2EE_PROVIDER_NAMES as readonly string[]).includes(d.provider_name);
 
 /**
- * e2ee strategy — soft preference for our confidential / end-to-end-encrypted
- * upstreams (near-ai / phala). The e2ee backends rank first (each partition
- * ordered health-first via rankAvailability); when a model has no e2ee backend
- * the list degrades to plain availability over the rest, i.e. it FALLS BACK to
- * other providers rather than failing. Mirrors rankProfit's preferred-prefix /
- * fallback-suffix shape, so the handlerUtils failover loop naturally exhausts
- * every e2ee backend before touching a non-e2ee one.
+ * e2ee strategy — confine traffic to our confidential / end-to-end-encrypted
+ * upstreams (near-ai / phala) whenever the model has any. If at least one e2ee
+ * backend exists, ONLY those are returned (ranked health-first); every non-e2ee
+ * backend is dropped from the candidate list, so the request can never fail
+ * over onto a non-confidential provider — the guarantee holds even when all
+ * e2ee backends are failing (the request errors rather than leaking). Only when
+ * the model has no e2ee backend at all does it fall back to the remaining
+ * providers, so models without e2ee capability still succeed.
  */
 function rankE2ee(
   deployments: ModelDeployment[],
   metrics: Map<number, DeploymentMetrics>
 ): ModelDeployment[] {
   const e2ee = deployments.filter(isE2eeProvider);
-  const rest = deployments.filter((d) => !isE2eeProvider(d));
-  return [
-    ...rankAvailability(e2ee, metrics),
-    ...rankAvailability(rest, metrics),
-  ];
+  if (e2ee.length > 0) return rankAvailability(e2ee, metrics);
+  return rankAvailability(deployments, metrics);
 }
 
 export function rankDeployments(

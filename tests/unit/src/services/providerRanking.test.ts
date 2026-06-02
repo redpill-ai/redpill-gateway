@@ -639,7 +639,7 @@ describe('rankDeployments — e2ee strategy', () => {
   const chutes = (id: number, o: Parameters<typeof dep>[1] = {}) =>
     dep(id, { ...o, provider: 'chutes' });
 
-  it('ranks near-ai / phala backends ahead of tinfoil / chutes', () => {
+  it('serves only e2ee backends and drops non-e2ee entirely when the model has both', () => {
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'GOOD', score: 0.6 })],
       [2, metric({ tier: 'GOOD', score: 0.6 })],
@@ -651,29 +651,22 @@ describe('rankDeployments — e2ee strategy', () => {
       m,
       'e2ee'
     );
-    // The two e2ee backends occupy the front two slots even though the
-    // non-e2ee ones have a much higher UX score.
-    const head = ranked
-      .slice(0, 2)
-      .map((x) => x.id)
-      .sort((a, b) => a - b);
-    expect(head).toEqual([1, 2]);
-    const tail = ranked
-      .slice(2)
-      .map((x) => x.id)
-      .sort((a, b) => a - b);
-    expect(tail).toEqual([3, 4]);
+    // Only the two e2ee backends survive; the (healthier) non-e2ee ones are
+    // dropped from the candidate list so failover can never reach them.
+    expect(new Set(ranked.map((x) => x.id))).toEqual(new Set([1, 2]));
+    expect(ranked).toHaveLength(2);
   });
 
-  it('keeps a non-e2ee backend last even when it is the healthiest', () => {
-    // tinfoil is GOOD, the lone e2ee (near-ai) is only DEGRADED — e2ee still
-    // wins primary because provider preference dominates health.
+  it('drops a healthier non-e2ee backend rather than keeping it as fallback', () => {
+    // tinfoil is GOOD, the lone e2ee (near-ai) is only DEGRADED. e2ee exists,
+    // so tinfoil is excluded entirely — even though it would be the healthier
+    // serve — and the request rides the degraded e2ee node only.
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'DEGRADED', score: 0.3 })],
       [3, metric({ tier: 'GOOD', score: 0.95 })],
     ]);
     const ranked = rankDeployments([tinfoil(3), nearai(1)], m, 'e2ee');
-    expect(ranked.map((x) => x.id)).toEqual([1, 3]);
+    expect(ranked.map((x) => x.id)).toEqual([1]);
   });
 
   it('orders the e2ee partition itself health-first (GOOD before DEGRADED)', () => {

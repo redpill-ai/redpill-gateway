@@ -55,8 +55,9 @@ export interface VirtualKeyContext {
   // Per-key routing strategy from virtual_keys.metadata.routing_strategy.
   // 'availability' (default) = health-first ranking; 'profit' = margin-first
   // with a loss-boundary availability floor (see tryWithDeploymentFailover);
-  // 'e2ee' = prefer confidential upstreams (near-ai / phala) first, fall back
-  // to other providers when the model has no e2ee backend.
+  // 'e2ee' = serve only confidential upstreams (near-ai / phala) when the model
+  // has any (non-e2ee backends dropped, no fallover even if all e2ee backends
+  // fail); fall back to other providers only when it has no e2ee backend at all.
   routingStrategy: RoutingStrategy;
 }
 
