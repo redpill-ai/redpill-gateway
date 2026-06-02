@@ -18,6 +18,8 @@ import PhalaConfig from './phala';
 import TinfoilConfig from './tinfoil';
 import ChutesConfig from './chutes';
 import NearAIConfig from './near-ai';
+import ZeroGConfig from './0g';
+import SecretAIConfig from './secretai';
 import TogetherAIConfig from './together-ai';
 import StabilityAIConfig from './stability-ai';
 import OllamaAPIConfig from './ollama';
@@ -84,6 +86,8 @@ const Providers: { [key: string]: ProviderConfigs } = {
   tinfoil: TinfoilConfig,
   chutes: ChutesConfig,
   'near-ai': NearAIConfig,
+  '0g': ZeroGConfig,
+  secretai: SecretAIConfig,
   'mistral-ai': MistralAIConfig,
   deepinfra: DeepInfraConfig,
   ncompass: NCompassConfig,
