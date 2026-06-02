@@ -54,20 +54,25 @@ export interface VirtualKeyContext {
   allDeployments: ModelDeployment[];
   // Per-key routing strategy from virtual_keys.metadata.routing_strategy.
   // 'availability' (default) = health-first ranking; 'profit' = margin-first
-  // with a loss-boundary availability floor (see tryWithDeploymentFailover).
+  // with a loss-boundary availability floor (see tryWithDeploymentFailover);
+  // 'e2ee' = prefer confidential upstreams (near-ai / phala) first, fall back
+  // to other providers when the model has no e2ee backend.
   routingStrategy: RoutingStrategy;
 }
 
-// Reads the per-key routing strategy from metadata. Anything other than the
-// literal 'profit' (absent / anonymous / typo) → 'availability', so existing
-// keys keep current behavior.
+// Reads the per-key routing strategy from metadata. Only the literal 'profit'
+// and 'e2ee' are recognized; anything else (absent / anonymous / typo) →
+// 'availability', so existing keys keep current behavior.
 const parseRoutingStrategy = (
   virtualKeyWithUser: VirtualKeyWithUser | null
 ): RoutingStrategy => {
   const metadata = virtualKeyWithUser?.metadata as {
     routing_strategy?: unknown;
   } | null;
-  return metadata?.routing_strategy === 'profit' ? 'profit' : 'availability';
+  const strategy = metadata?.routing_strategy;
+  if (strategy === 'profit') return 'profit';
+  if (strategy === 'e2ee') return 'e2ee';
+  return 'availability';
 };
 
 class VirtualKeyValidationError extends Error {

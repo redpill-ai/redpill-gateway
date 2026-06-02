@@ -17,6 +17,7 @@ import {
 } from '../db/redis';
 import { decryptConfig } from '../utils/encryption';
 import { type VirtualKeyWithUser } from '../db/postgres/virtualKey';
+import { E2EE_PROVIDER_NAMES } from '../globals';
 
 const ModelSchema = z.object({
   id: z.string(),
@@ -115,7 +116,7 @@ export class ModelService {
     const cached = await getCache(cacheKey);
     if (cached) return cached;
 
-    const models = await getModelsByProviders(['phala', 'near-ai']);
+    const models = await getModelsByProviders([...E2EE_PROVIDER_NAMES]);
     const transformedModels = await this.transformModels(models, {
       includeEmbeddings: false,
       excludeAliases: true,

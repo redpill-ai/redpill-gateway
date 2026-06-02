@@ -60,6 +60,10 @@ export const GOOGLE_VERTEX_AI: string = 'vertex-ai';
 export const HUGGING_FACE: string = 'huggingface';
 export const PERPLEXITY_AI: string = 'perplexity-ai';
 export const PHALA: string = 'phala';
+// Our confidential / end-to-end-encrypted upstreams. The e2ee routing strategy
+// ranks these first; the public /v1/models/providers/phala list also aggregates
+// over this same set (see getPhalaModels).
+export const E2EE_PROVIDER_NAMES = ['phala', 'near-ai'] as const;
 export const REKA_AI: string = 'reka-ai';
 export const MISTRAL_AI: string = 'mistral-ai';
 export const DEEPINFRA: string = 'deepinfra';

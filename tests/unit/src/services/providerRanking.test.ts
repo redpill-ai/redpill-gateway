@@ -627,3 +627,72 @@ describe('rankDeployments — profit strategy', () => {
     expect(ranked[0].id).toBe(1);
   });
 });
+
+describe('rankDeployments — e2ee strategy', () => {
+  // id 1 near-ai, id 2 phala = e2ee upstreams; id 3 tinfoil, id 4 chutes = not.
+  const nearai = (id: number, o: Parameters<typeof dep>[1] = {}) =>
+    dep(id, { ...o, provider: 'near-ai' });
+  const phala = (id: number, o: Parameters<typeof dep>[1] = {}) =>
+    dep(id, { ...o, provider: 'phala' });
+  const tinfoil = (id: number, o: Parameters<typeof dep>[1] = {}) =>
+    dep(id, { ...o, provider: 'tinfoil' });
+  const chutes = (id: number, o: Parameters<typeof dep>[1] = {}) =>
+    dep(id, { ...o, provider: 'chutes' });
+
+  it('ranks near-ai / phala backends ahead of tinfoil / chutes', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.6 })],
+      [2, metric({ tier: 'GOOD', score: 0.6 })],
+      [3, metric({ tier: 'GOOD', score: 0.95 })],
+      [4, metric({ tier: 'GOOD', score: 0.95 })],
+    ]);
+    const ranked = rankDeployments(
+      [tinfoil(3), nearai(1), chutes(4), phala(2)],
+      m,
+      'e2ee'
+    );
+    // The two e2ee backends occupy the front two slots even though the
+    // non-e2ee ones have a much higher UX score.
+    const head = ranked
+      .slice(0, 2)
+      .map((x) => x.id)
+      .sort((a, b) => a - b);
+    expect(head).toEqual([1, 2]);
+    const tail = ranked
+      .slice(2)
+      .map((x) => x.id)
+      .sort((a, b) => a - b);
+    expect(tail).toEqual([3, 4]);
+  });
+
+  it('keeps a non-e2ee backend last even when it is the healthiest', () => {
+    // tinfoil is GOOD, the lone e2ee (near-ai) is only DEGRADED — e2ee still
+    // wins primary because provider preference dominates health.
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'DEGRADED', score: 0.3 })],
+      [3, metric({ tier: 'GOOD', score: 0.95 })],
+    ]);
+    const ranked = rankDeployments([tinfoil(3), nearai(1)], m, 'e2ee');
+    expect(ranked.map((x) => x.id)).toEqual([1, 3]);
+  });
+
+  it('orders the e2ee partition itself health-first (GOOD before DEGRADED)', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'DEGRADED', score: 0.4 })],
+      [2, metric({ tier: 'GOOD', score: 0.9 })],
+    ]);
+    const ranked = rankDeployments([nearai(1), phala(2)], m, 'e2ee');
+    expect(ranked.map((x) => x.id)).toEqual([2, 1]);
+  });
+
+  it('falls back to non-e2ee providers when the model has no e2ee backend', () => {
+    // Only tinfoil + chutes — must not error/empty; degrades to availability.
+    const m = new Map<number, DeploymentMetrics>([
+      [3, metric({ tier: 'GOOD', score: 0.9 })],
+      [4, metric({ tier: 'DEGRADED', score: 0.5 })],
+    ]);
+    const ranked = rankDeployments([chutes(4), tinfoil(3)], m, 'e2ee');
+    expect(ranked.map((x) => x.id)).toEqual([3, 4]); // GOOD before DEGRADED
+    expect(ranked).toHaveLength(2);
+  });
+});

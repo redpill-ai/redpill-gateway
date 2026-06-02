@@ -8,6 +8,7 @@
  */
 import { type ModelDeployment } from '../db/postgres/model';
 import { getRedisClient } from '../db/redis';
+import { E2EE_PROVIDER_NAMES } from '../globals';
 import {
   DeploymentMetrics,
   DeploymentTier,
@@ -53,7 +54,7 @@ export function finalScore(d: ModelDeployment, uxScore: number): number {
   return W_UX * uxScore + W_MARGIN * marginScore(d);
 }
 
-export type RoutingStrategy = 'availability' | 'profit';
+export type RoutingStrategy = 'availability' | 'profit' | 'e2ee';
 
 // Profit-first only serves backends whose full margin is at or above this floor
 // (0 = break-even). Loss-making backends are last-resort fallback only.
@@ -291,15 +292,13 @@ function rankProfit(
   return [...profitablePrefix, ...lossy.map((x) => x.d)];
 }
 
-export function rankDeployments(
+// Health-first ranking (the default `availability` strategy). Operates on any
+// list length, including 0/1 — callers (rankDeployments, rankE2ee) may pass a
+// single-element or empty sub-list, so this must NOT early-return.
+function rankAvailability(
   deployments: ModelDeployment[],
-  metrics: Map<number, DeploymentMetrics>,
-  strategy: RoutingStrategy = 'availability'
+  metrics: Map<number, DeploymentMetrics>
 ): ModelDeployment[] {
-  if (deployments.length <= 1) return deployments;
-
-  if (strategy === 'profit') return rankProfit(deployments, metrics);
-
   type Decorated = {
     d: ModelDeployment;
     m: DeploymentMetrics | undefined;
@@ -366,4 +365,39 @@ export function rankDeployments(
   }
 
   return result;
+}
+
+const isE2eeProvider = (d: ModelDeployment): boolean =>
+  (E2EE_PROVIDER_NAMES as readonly string[]).includes(d.provider_name);
+
+/**
+ * e2ee strategy — soft preference for our confidential / end-to-end-encrypted
+ * upstreams (near-ai / phala). The e2ee backends rank first (each partition
+ * ordered health-first via rankAvailability); when a model has no e2ee backend
+ * the list degrades to plain availability over the rest, i.e. it FALLS BACK to
+ * other providers rather than failing. Mirrors rankProfit's preferred-prefix /
+ * fallback-suffix shape, so the handlerUtils failover loop naturally exhausts
+ * every e2ee backend before touching a non-e2ee one.
+ */
+function rankE2ee(
+  deployments: ModelDeployment[],
+  metrics: Map<number, DeploymentMetrics>
+): ModelDeployment[] {
+  const e2ee = deployments.filter(isE2eeProvider);
+  const rest = deployments.filter((d) => !isE2eeProvider(d));
+  return [
+    ...rankAvailability(e2ee, metrics),
+    ...rankAvailability(rest, metrics),
+  ];
+}
+
+export function rankDeployments(
+  deployments: ModelDeployment[],
+  metrics: Map<number, DeploymentMetrics>,
+  strategy: RoutingStrategy = 'availability'
+): ModelDeployment[] {
+  if (deployments.length <= 1) return deployments;
+  if (strategy === 'profit') return rankProfit(deployments, metrics);
+  if (strategy === 'e2ee') return rankE2ee(deployments, metrics);
+  return rankAvailability(deployments, metrics);
 }
