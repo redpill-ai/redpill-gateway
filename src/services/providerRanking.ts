@@ -65,6 +65,15 @@ export const PROFIT_MIN_MARGIN = 0;
 // traffic so it accumulates samples and graduates instead of starving at the
 // bottom forever — while its own noisy point estimate is ignored, so a lucky
 // all-success small sample can't catapult it to primary.
+//
+// This is a PER-NODE weight, not a shared budget: with N cold backends competing
+// against a healthy anchor (weight 1) the aggregate exploration share is
+// 0.05N/(1+0.05N), which grows with N (N=4 → 17%, N=10 → 33%, N=20 → 50%). That
+// is fine while a model has only a handful of backends (today the max is 4), but
+// if a single model ever fans out to ~5+ simultaneously-cold backends it would
+// dilute a proven incumbent / over-expose traffic to unproven nodes. At that
+// point switch to a shared exploration budget (cold pool gets ~EXPLORE_WEIGHT
+// total, split among its members) instead of bumping this constant.
 const EXPLORE_WEIGHT = 0.05;
 
 // A deployment is "cold" when it has no trustworthy uptime yet: no metrics, a
@@ -280,10 +289,20 @@ function rankProfit(
     profitablePrefix = graduated; // primary = highest-EV, deterministic
   } else {
     const best = graduated[0]; // undefined when every profitable backend is cold
+    // best anchors the lottery at weight 1 ONLY while it is a worthy primary
+    // (EV > 0). Once it degrades to EV ≤ 0 (e.g. uptime below BETA/(1+BETA)) it
+    // drops to EXPLORE_WEIGHT and competes on equal footing with the cold
+    // explorers instead of dominating them — fixing the case where a degrading
+    // incumbent starves a healthy-but-cold alternative. It stays in the pool
+    // (not banished to failover), so a broken cold backend can't divert 100% of
+    // primary traffic: the bounded blast radius is preserved on both sides.
+    const anchorEligible = best != null && ev(best) > 0;
     const contenders = best ? [best, ...cold] : cold;
-    // best normalized to weight 1: EV is in money units, so mixing raw EV with
+    // anchor normalized to weight 1: EV is in money units, so mixing raw EV with
     // the 0.05 explore weight would be unit-inconsistent. Each cold backend ~5%.
-    const weights = contenders.map((d) => (d === best ? 1 : EXPLORE_WEIGHT));
+    const weights = contenders.map((d) =>
+      d === best && anchorEligible ? 1 : EXPLORE_WEIGHT
+    );
     const primary = contenders[weightedRandomIndex(weights)];
     const rest = [...graduated, ...cold].filter((d) => d !== primary);
     profitablePrefix = [primary, ...rest];
