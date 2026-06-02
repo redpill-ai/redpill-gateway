@@ -480,7 +480,15 @@ export function handleStreamingMode(
     responseTransformer?.name ===
       VertexLlamaChatCompleteStreamChunkTransform.name;
   const isJsonStream = isGoogleCohereOrBedrock || isVertexLlama;
-  if (isJsonStream && responseTransformer) {
+
+  // Some OpenAI-compatible providers emit a proper SSE stream but mislabel the
+  // upstream content-type (0g tags its event-stream as `application/json`).
+  // handleStreamingMode always produces an SSE body, so normalize the header to
+  // text/event-stream — otherwise downstream middleware (spend logging and
+  // in-stream cost injection) doesn't recognize it as a stream.
+  const mislabelsSseContentType = proxyProvider === '0g';
+
+  if ((isJsonStream && responseTransformer) || mislabelsSseContentType) {
     return new Response(readable, {
       ...response,
       headers: new Headers({
