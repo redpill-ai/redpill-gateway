@@ -11,6 +11,8 @@ const ChutesApiConfig: ProviderAPIConfig = {
         return '/completions';
       case 'chatComplete':
         return '/chat/completions';
+      case 'embed':
+        return '/embeddings';
       case 'messages':
         return '/chat/completions';
       default:

@@ -2,6 +2,7 @@ import { ProviderConfigs } from '../types';
 import ChutesApiConfig from './api';
 import { ChutesChatCompleteConfig } from './chatComplete';
 import { ChutesCompleteConfig } from './complete';
+import { ChutesEmbedConfig } from './embed';
 import { createExtraFieldStripper } from '../utils';
 import {
   OpenAIToAnthropicMessagesConfig,
@@ -26,6 +27,7 @@ const {
 const ChutesConfig: ProviderConfigs = {
   complete: ChutesCompleteConfig,
   chatComplete: ChutesChatCompleteConfig,
+  embed: ChutesEmbedConfig,
   messages: OpenAIToAnthropicMessagesConfig,
   api: ChutesApiConfig,
   responseTransforms: {
