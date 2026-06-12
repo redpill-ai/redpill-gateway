@@ -42,6 +42,11 @@ export const generateErrorResponse: (
   } as ErrorResponse;
 };
 
+export const normalizeXhighReasoningEffort = (params: Record<string, any>) => {
+  if (params.reasoning_effort === 'xhigh') return 'max';
+  return params.reasoning_effort;
+};
+
 type SplitResult = {
   before: string;
   after: string;
