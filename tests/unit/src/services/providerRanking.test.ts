@@ -618,6 +618,40 @@ describe('rankDeployments — profit strategy', () => {
     expect(ranked).toHaveLength(2);
   });
 
+  // Two break-even self-hosted nodes (cost == sell ⇒ absMargin 0 ⇒ M=0 ⇒ every
+  // EV collapses to 0). Argmax would pin 100% of primary on whichever sorts
+  // first; the tie-lottery must spread primary across both instead.
+  const selfHosted = {
+    sellInput: '1e-6',
+    sellOutput: '1e-6',
+    costInput: '1e-6',
+    costOutput: '1e-6',
+  }; // margin exactly 0 (break-even)
+
+  it('spreads primary across two EV-tied break-even self-hosted nodes', () => {
+    const m = new Map<number, DeploymentMetrics>([
+      [1, metric({ tier: 'GOOD', score: 0.9, uptime: 0.98 })],
+      [2, metric({ tier: 'GOOD', score: 0.9, uptime: 0.98 })],
+    ]);
+    const tally = new Map<number, number>([
+      [1, 0],
+      [2, 0],
+    ]);
+    const N = 4000;
+    for (let i = 0; i < N; i++) {
+      const ranked = rankDeployments(
+        [dep(1, selfHosted), dep(2, selfHosted)],
+        m,
+        'profit'
+      );
+      tally.set(ranked[0].id, (tally.get(ranked[0].id) ?? 0) + 1);
+      expect(ranked).toHaveLength(2);
+    }
+    // Equal config.weight + equal score → roughly 50/50, never a near-total pin.
+    expect(tally.get(1)! / N).toBeGreaterThan(0.4);
+    expect(tally.get(2)! / N).toBeGreaterThan(0.4);
+  });
+
   it('default availability strategy is unchanged (GOOD beats DEGRADED despite loss)', () => {
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'GOOD', score: 0.9 })],

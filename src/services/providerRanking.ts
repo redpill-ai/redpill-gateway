@@ -284,9 +284,43 @@ function rankProfit(
     expectedValue(absMargin(d) ?? 0, metrics.get(d.id)!.uptime!, M);
   graduated.sort((a, b) => ev(b) - ev(a));
 
+  // Among graduated backends tied at the top expected profit, spread primary by
+  // a capacity/health-weighted lottery instead of a deterministic argmax. The
+  // tie group is usually a single backend (distinct margins ⇒ distinct EV), in
+  // which case this is a no-op and the highest-EV backend stays primary. But
+  // when several backends are genuinely indistinguishable on profit — most
+  // importantly two break-even self-hosted nodes, where M=0 collapses every EV
+  // to exactly 0 — argmax pins 100% of primary traffic on whichever sorts first,
+  // saturating it (429) while its identical sibling idles. The lottery splits
+  // that load: config.weight sets the capacity ratio (a GPU twice as big can be
+  // weighted 2) and the score factor sheds traffic from a node whose latency is
+  // climbing under load. A strictly higher-margin backend stands alone at the
+  // top EV and still wins deterministically, so cross-margin
+  // concentrate-and-overflow is untouched.
+  if (graduated.length > 1) {
+    const topEv = ev(graduated[0]);
+    const tol = Math.abs(topEv) * 1e-9 + Number.EPSILON;
+    const leaders = graduated.filter((d) => topEv - ev(d) <= tol);
+    if (leaders.length > 1) {
+      const leaderWeight = (d: ModelDeployment) => {
+        const cfgW = d.config?.weight ?? 1;
+        const s = metrics.get(d.id)?.score ?? 0;
+        return cfgW * (s > 0 ? s : 1);
+      };
+      const primary = leaders[weightedRandomIndex(leaders.map(leaderWeight))];
+      // Promote the lottery winner; keep the rest in EV order so failover still
+      // descends by expected profit.
+      const idx = graduated.indexOf(primary);
+      graduated.splice(idx, 1);
+      graduated.unshift(primary);
+    }
+  }
+
   let profitablePrefix: ModelDeployment[];
   if (cold.length === 0) {
-    profitablePrefix = graduated; // primary = highest-EV, deterministic
+    // primary = graduated[0]: the tie-lottery winner when the top EV is shared,
+    // otherwise the sole highest-EV backend.
+    profitablePrefix = graduated;
   } else {
     const best = graduated[0]; // undefined when every profitable backend is cold
     // best anchors the lottery at weight 1 ONLY while it is a worthy primary
