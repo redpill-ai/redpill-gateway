@@ -1,4 +1,38 @@
 import { ProviderConfig } from '../types';
+import { Params } from '../../types/requestBody';
+
+// Reasoning-effort remapping scoped to z-ai/glm-5.2 only.
+//
+// The GLM-5.2 sglang upstream accepts reasoning_effort values of
+// low | medium | high | max and rejects anything else with a 400. Map the
+// OpenAI-style values clients commonly send onto that set; values already in
+// the accepted set (low/medium/high/max) pass through unchanged.
+//
+// Intentionally gated to GLM-5.2 so other phala models keep the verbatim
+// reasoning_effort passthrough until their own upstream vocabularies are
+// verified. By the time this transform runs the gateway has already rewritten
+// params.model to the deployment name (overrideModelFromContext), so we match
+// the deployment name as well as the canonical/upstream ids.
+const GLM_5_2_MODEL_IDS = new Set([
+  'glm-5.2', // deployment_name (what the gateway forwards upstream)
+  'z-ai/glm-5.2', // canonical model id
+  'glm-5.2-fp8', // raw upstream model id
+]);
+
+const GLM_5_2_REASONING_EFFORT_MAP: Record<string, string> = {
+  minimal: 'low',
+  auto: 'medium',
+  xhigh: 'max',
+};
+
+const mapReasoningEffort = (params: Params) => {
+  const effort = params.reasoning_effort;
+  if (typeof effort !== 'string') return effort;
+  const model =
+    typeof params.model === 'string' ? params.model.toLowerCase() : '';
+  if (!GLM_5_2_MODEL_IDS.has(model)) return effort;
+  return GLM_5_2_REASONING_EFFORT_MAP[effort] ?? effort;
+};
 
 export const PhalaChatCompleteConfig: ProviderConfig = {
   model: {
@@ -31,6 +65,17 @@ export const PhalaChatCompleteConfig: ProviderConfig = {
     default: 1,
     min: 0,
     max: 1,
+  },
+  // sglang-native sampling params (forwarded verbatim when the client sends
+  // them; the upstream validates ranges).
+  top_k: {
+    param: 'top_k',
+  },
+  min_p: {
+    param: 'min_p',
+  },
+  repetition_penalty: {
+    param: 'repetition_penalty',
   },
   n: {
     param: 'n',
@@ -107,6 +152,7 @@ export const PhalaChatCompleteConfig: ProviderConfig = {
   },
   reasoning_effort: {
     param: 'reasoning_effort',
+    transform: (params: Params) => mapReasoningEffort(params),
   },
   web_search_options: {
     param: 'web_search_options',
