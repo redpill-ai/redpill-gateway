@@ -66,6 +66,17 @@ export const PhalaChatCompleteConfig: ProviderConfig = {
     min: 0,
     max: 1,
   },
+  // sglang-native sampling params (forwarded verbatim when the client sends
+  // them; the upstream validates ranges).
+  top_k: {
+    param: 'top_k',
+  },
+  min_p: {
+    param: 'min_p',
+  },
+  repetition_penalty: {
+    param: 'repetition_penalty',
+  },
   n: {
     param: 'n',
     default: 1,
