@@ -1,4 +1,5 @@
 import { ProviderConfig } from '../types';
+import { normalizeXhighReasoningEffort } from '../utils';
 
 export const NearAIChatCompleteConfig: ProviderConfig = {
   model: {
@@ -107,6 +108,7 @@ export const NearAIChatCompleteConfig: ProviderConfig = {
   },
   reasoning_effort: {
     param: 'reasoning_effort',
+    transform: normalizeXhighReasoningEffort,
   },
   web_search_options: {
     param: 'web_search_options',
