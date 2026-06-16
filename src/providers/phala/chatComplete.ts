@@ -3,16 +3,19 @@ import { Params } from '../../types/requestBody';
 
 // Reasoning-effort remapping scoped to z-ai/glm-5.2 only.
 //
-// The GLM-5.2 sglang upstream accepts reasoning_effort values of
-// low | medium | high | max and rejects anything else with a 400. Map the
-// OpenAI-style values clients commonly send onto that set; values already in
-// the accepted set (low/medium/high/max) pass through unchanged.
+// Per Z.ai's GLM-5.2 guidance the model has three effective reasoning tiers:
+// off ("none"), "high", and "max". Map the OpenAI-style effort spectrum onto
+// those tiers:
+//   none, minimal           -> none  (reasoning disabled; verified reasoning_tokens=0)
+//   low, medium, high, auto  -> high
+//   xhigh, max               -> max
+// Unrecognised values pass through unchanged.
 //
 // Intentionally gated to GLM-5.2 so other phala models keep the verbatim
-// reasoning_effort passthrough until their own upstream vocabularies are
-// verified. By the time this transform runs the gateway has already rewritten
-// params.model to the deployment name (overrideModelFromContext), so we match
-// the deployment name as well as the canonical/upstream ids.
+// reasoning_effort passthrough. By the time this transform runs the gateway
+// has already rewritten params.model to the deployment name
+// (overrideModelFromContext), so we match the deployment name as well as the
+// canonical/upstream ids.
 const GLM_5_2_MODEL_IDS = new Set([
   'glm-5.2', // deployment_name (what the gateway forwards upstream)
   'z-ai/glm-5.2', // canonical model id
@@ -20,9 +23,14 @@ const GLM_5_2_MODEL_IDS = new Set([
 ]);
 
 const GLM_5_2_REASONING_EFFORT_MAP: Record<string, string> = {
-  minimal: 'low',
-  auto: 'medium',
+  none: 'none',
+  minimal: 'none',
+  low: 'high',
+  medium: 'high',
+  high: 'high',
+  auto: 'high',
   xhigh: 'max',
+  max: 'max',
 };
 
 const mapReasoningEffort = (params: Params) => {
