@@ -150,10 +150,12 @@ const createVirtualKeyContext = async (
   let allDeployments =
     await modelService.getAllModelDeploymentsForModel(modelName);
 
+  // No active deployment for the model (unknown model, or model with no live
+  // node) is a 400, aligning with the new gateway's "no route" response.
   if (!allDeployments.length) {
     throw new VirtualKeyValidationError(
       `Model '${modelName}' is not available`,
-      404
+      400
     );
   }
 
