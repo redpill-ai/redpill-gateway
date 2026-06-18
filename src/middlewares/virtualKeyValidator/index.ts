@@ -1,4 +1,5 @@
 import { Context } from 'hono';
+import { z } from 'zod';
 import {
   findVirtualKeyWithUser,
   VirtualKeyWithUser,
@@ -12,6 +13,42 @@ import {
 } from '../../services/providerRanking';
 import { env } from '../../constants';
 import { hash } from '../../utils/hash';
+
+// Client-selectable providers for the request `provider` routing block. A
+// request can restrict routing to these via `{ provider: { only/order: [...] } }`.
+const SUPPORTED_CLIENT_PROVIDERS = new Set(['phala']);
+
+const ProviderRoutingSchema = z.object({
+  only: z.array(z.string()).optional(),
+  order: z.array(z.string()).optional(),
+});
+
+// Resolved request provider preference:
+// - string[]      requested providers (all supported); restrict to them
+// - 'unsupported' a well-formed block naming a provider we don't offer (→404)
+// - 'invalid'     the block itself is malformed (→400)
+// - null          no provider requested; rank all deployments as before
+type ProviderDecision = string[] | 'unsupported' | 'invalid' | null;
+
+const resolveProviderDecision = (provider: unknown): ProviderDecision => {
+  if (provider === undefined || provider === null) return null;
+  if (Array.isArray(provider)) return 'invalid';
+  const parsed = ProviderRoutingSchema.safeParse(provider);
+  if (!parsed.success) return 'invalid';
+
+  const requested = [
+    ...new Set(
+      [...(parsed.data.only ?? []), ...(parsed.data.order ?? [])]
+        .map((p) => p.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+  if (requested.length === 0) return null;
+  if (requested.some((p) => !SUPPORTED_CLIENT_PROVIDERS.has(p))) {
+    return 'unsupported';
+  }
+  return requested;
+};
 
 /**
  * Determines how spending is tracked for a request:
@@ -110,7 +147,7 @@ const createVirtualKeyContext = async (
   spendMode: SpendMode = 'regular'
 ): Promise<VirtualKeyContext> => {
   const modelService = new ModelService();
-  const allDeployments =
+  let allDeployments =
     await modelService.getAllModelDeploymentsForModel(modelName);
 
   if (!allDeployments.length) {
@@ -118,6 +155,32 @@ const createVirtualKeyContext = async (
       `Model '${modelName}' is not available`,
       404
     );
+  }
+
+  // Honor the request `provider` routing block (validated in
+  // virtualKeyValidator). Restrict candidate deployments to the requested
+  // providers before ranking, so both the primary pick and the failover list
+  // obey it. A model with no matching node is a 404.
+  const providerDecision = c.get('providerDecision') as
+    | ProviderDecision
+    | undefined;
+  if (providerDecision === 'unsupported') {
+    throw new VirtualKeyValidationError(
+      'No allowed providers are available for the selected model.',
+      404
+    );
+  }
+  if (Array.isArray(providerDecision)) {
+    const allowed = new Set(providerDecision);
+    allDeployments = allDeployments.filter((d) =>
+      allowed.has(d.provider_name.toLowerCase())
+    );
+    if (!allDeployments.length) {
+      throw new VirtualKeyValidationError(
+        'No allowed providers are available for the selected model.',
+        404
+      );
+    }
   }
 
   // Metric-driven primary selection: rankDeployments uses MetricsAggregator's
@@ -361,10 +424,12 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
 
   try {
     let modelName = '';
+    let providerDecision: ProviderDecision = null;
     if (c.req.method === 'POST') {
       const rawBody = await c.req.text();
       const parsedBody = JSON.parse(rawBody);
       modelName = parsedBody?.model ?? '';
+      providerDecision = resolveProviderDecision(parsedBody?.provider);
     } else {
       modelName = c.req.query('model') || '';
     }
@@ -377,6 +442,16 @@ export const virtualKeyValidator = async (c: Context, next: any) => {
     if (!modelName) {
       throw new VirtualKeyValidationError('Model parameter is required', 400);
     }
+
+    // Validate the request `provider` routing block up front; createVirtualKeyContext
+    // applies it once the model's deployments are known.
+    if (providerDecision === 'invalid') {
+      throw new VirtualKeyValidationError(
+        "Invalid 'provider' routing block.",
+        400
+      );
+    }
+    c.set('providerDecision', providerDecision);
 
     if (isPublicEndpoint(requestPath)) {
       await handlePublicEndpoint(c, modelName);
