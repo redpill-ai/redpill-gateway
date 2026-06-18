@@ -1497,10 +1497,6 @@ export async function tryWithDeploymentFailover(
     virtualKeyContext.modelDeploymentId
   );
 
-  const isBasicTier =
-    (virtualKeyContext?.virtualKeyWithUser?.metadata as Record<string, any>)
-      ?.tier === 'basic';
-
   // Profit-first: `ordered` is profitable backends first, loss-making ones
   // last. The floor decision fires once, at the first loss-making backend.
   const isProfit = virtualKeyContext?.routingStrategy === 'profit';
@@ -1578,11 +1574,6 @@ export async function tryWithDeploymentFailover(
     const attemptDuration = Date.now() - attemptStart;
 
     if (response.ok || !RETRIABLE_STATUS_CODES.includes(response.status)) {
-      c.set('attemptIndex', i);
-      return normalizeResponse(response);
-    }
-
-    if (response.status === 429 && isBasicTier) {
       c.set('attemptIndex', i);
       return normalizeResponse(response);
     }
