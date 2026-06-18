@@ -218,9 +218,14 @@ export class MetricsAggregator {
             provider,
             countIf(timestamp >= now() - INTERVAL 6 HOUR) AS total_6h,
             countIf(is_success = 1 AND timestamp >= now() - INTERVAL 6 HOUR) AS success_6h,
+            -- 429 is excluded from the denominator: a rate-limited node is at
+            -- capacity, not unhealthy. Counting it would penalize the cheapest
+            -- (highest-margin) node for winning the most traffic. Capacity is
+            -- handled by per-request failover, not by the uptime score. 408/425
+            -- stay counted as genuine availability failures.
             countIf(timestamp >= now() - INTERVAL 6 HOUR
                     AND NOT (status_code >= 400 AND status_code < 500
-                             AND status_code NOT IN (408, 425, 429))) AS uptime_den_6h,
+                             AND status_code NOT IN (408, 425))) AS uptime_den_6h,
             quantileIf(0.5)(duration_ms, timestamp >= now() - INTERVAL 6 HOUR) AS p50_latency_6h,
             quantileIf(0.95)(duration_ms, timestamp >= now() - INTERVAL 6 HOUR) AS p95_latency_6h,
             quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0 AND timestamp >= now() - INTERVAL 6 HOUR) AS p50_ttft_6h,
@@ -228,7 +233,7 @@ export class MetricsAggregator {
             count() AS total_24h,
             countIf(is_success = 1) AS success_24h,
             countIf(NOT (status_code >= 400 AND status_code < 500
-                         AND status_code NOT IN (408, 425, 429))) AS uptime_den_24h,
+                         AND status_code NOT IN (408, 425))) AS uptime_den_24h,
             quantile(0.5)(duration_ms) AS p50_latency_24h,
             quantile(0.95)(duration_ms) AS p95_latency_24h,
             quantileIf(0.5)(ttft_ms, is_streaming = 1 AND is_success = 1 AND ttft_ms > 0) AS p50_ttft_24h,
