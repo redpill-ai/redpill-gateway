@@ -38,6 +38,7 @@ const ModelSchema = z.object({
     })
     .default({}),
   supported_parameters: z.array(z.string()).default([]),
+  is_tee: z.boolean().default(false),
   providers: z.array(z.string()).default([]),
   description: z.string().optional(),
   metadata: z
@@ -195,6 +196,8 @@ export class ModelService {
         max_output_length: specs.max_output_tokens || specs.context_length,
         pricing: this.buildPricing(specs, config),
         supported_parameters: specs.supported_parameters,
+        // TEE (confidential) flag, judged from the model's specs.
+        is_tee: specs.is_tee === true,
         providers:
           overrideProviders ||
           Array.from(providersByModelId[model.id] || []).sort(),
