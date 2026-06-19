@@ -215,7 +215,17 @@ export async function getMetricsForModel(
       const id = Number(field);
       if (!Number.isFinite(id)) continue;
       try {
-        map.set(id, JSON.parse(value) as DeploymentMetrics);
+        const m = JSON.parse(value) as DeploymentMetrics;
+        // Back-compat: the UNHEALTHY tier was previously named FALLBACK_ONLY.
+        // During a rollout the aggregator (refreshed every 5 min, Redis TTL 2h)
+        // may still hold legacy entries; normalize them so the renamed reader
+        // doesn't bucket them into a tier absent from TIER_ORDER and silently
+        // drop those deployments from routing. Safe to remove once all caches
+        // have refreshed past the deploy.
+        if ((m.tier as string) === 'FALLBACK_ONLY') {
+          m.tier = 'UNHEALTHY';
+        }
+        map.set(id, m);
       } catch {
         // skip malformed entries
       }
@@ -228,7 +238,7 @@ export async function getMetricsForModel(
   }
 }
 
-const TIER_ORDER: DeploymentTier[] = ['GOOD', 'DEGRADED', 'FALLBACK_ONLY'];
+const TIER_ORDER: DeploymentTier[] = ['GOOD', 'DEGRADED', 'UNHEALTHY'];
 
 function weightedRandomIndex(weights: number[]): number {
   const total = weights.reduce((a, b) => a + b, 0);
@@ -411,7 +421,7 @@ function rankAvailability(
         .sort((a, b) => w(b) - w(a));
       result.push(primary.d, ...rest.map((x) => x.d));
     } else {
-      // DEGRADED / FALLBACK_ONLY — deterministic best-of-the-rest
+      // DEGRADED / UNHEALTHY — deterministic best-of-the-rest
       list.sort((a, b) => b.score - a.score);
       result.push(...list.map((x) => x.d));
     }

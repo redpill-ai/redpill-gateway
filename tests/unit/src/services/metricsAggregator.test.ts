@@ -47,7 +47,7 @@ describe('tierFromUptime', () => {
 
   it('returns DEGRADED at the 0.80 boundary', () => {
     expect(tierFromUptime(0.8, 1000)).toBe('DEGRADED');
-    expect(tierFromUptime(0.7999, 1000)).toBe('FALLBACK_ONLY');
+    expect(tierFromUptime(0.7999, 1000)).toBe('UNHEALTHY');
   });
 
   it('returns GOOD for excellent uptime', () => {

@@ -85,15 +85,15 @@ describe('rankDeployments', () => {
     expect(ranked).toHaveLength(3);
   });
 
-  it('puts GOOD-tier deployments ahead of DEGRADED and FALLBACK_ONLY', () => {
+  it('puts GOOD-tier deployments ahead of DEGRADED and UNHEALTHY', () => {
     const d = [
-      dep(1), // FALLBACK_ONLY
+      dep(1), // UNHEALTHY
       dep(2), // GOOD
       dep(3), // DEGRADED
       dep(4), // GOOD
     ];
     const m = new Map<number, DeploymentMetrics>([
-      [1, metric({ tier: 'FALLBACK_ONLY', score: 0.4 })],
+      [1, metric({ tier: 'UNHEALTHY', score: 0.4 })],
       [2, metric({ tier: 'GOOD', score: 0.9 })],
       [3, metric({ tier: 'DEGRADED', score: 0.6 })],
       [4, metric({ tier: 'GOOD', score: 0.85 })],
@@ -107,7 +107,7 @@ describe('rankDeployments', () => {
     expect(new Set(ids.slice(0, 2))).toEqual(new Set([2, 4]));
     // Then the DEGRADED one.
     expect(ids[2]).toBe(3);
-    // FALLBACK_ONLY last.
+    // UNHEALTHY last.
     expect(ids[3]).toBe(1);
   });
 
@@ -192,7 +192,7 @@ describe('rankDeployments', () => {
     expect(ranked).toHaveLength(2);
   });
 
-  it('orders DEGRADED/FALLBACK_ONLY deterministically by descending score', () => {
+  it('orders DEGRADED/UNHEALTHY deterministically by descending score', () => {
     const d = [dep(1), dep(2), dep(3)];
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'DEGRADED', score: 0.3 })],
@@ -535,7 +535,7 @@ describe('rankDeployments — profit strategy', () => {
     // case: profitable, but too flaky to be primary.)
     const m = new Map<number, DeploymentMetrics>([
       [1, metric({ tier: 'GOOD', score: 0.7, uptime: 0.98 })],
-      [2, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.3 })],
+      [2, metric({ tier: 'UNHEALTHY', score: 0.2, uptime: 0.3 })],
       [3, metric({ tier: 'INSUFFICIENT_DATA', score: 0, uptime: null })],
     ]);
     const seenPrimary = new Set<number>();
@@ -606,8 +606,8 @@ describe('rankDeployments — profit strategy', () => {
     // No cold; both profitable but flaky → both EV<0, but the less-flaky one
     // (higher EV) is primary, and both stay in the output.
     const m = new Map<number, DeploymentMetrics>([
-      [1, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.3 })],
-      [2, metric({ tier: 'FALLBACK_ONLY', score: 0.2, uptime: 0.4 })],
+      [1, metric({ tier: 'UNHEALTHY', score: 0.2, uptime: 0.3 })],
+      [2, metric({ tier: 'UNHEALTHY', score: 0.2, uptime: 0.4 })],
     ]);
     const ranked = rankDeployments(
       [dep(1, profitable), dep(2, profitable)],

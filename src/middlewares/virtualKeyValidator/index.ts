@@ -89,6 +89,12 @@ export interface VirtualKeyContext {
   requestHash?: string;
   spendMode: SpendMode;
   allDeployments: ModelDeployment[];
+  // Ids of deployments classified UNHEALTHY by the metrics aggregator at
+  // ranking time. The failover loop withholds these from the serve list while
+  // any healthier backend exists, so a saturated/healthy 429 never cascades
+  // onto a genuinely-broken node — it 429s the client instead (see
+  // tryWithDeploymentFailover). Empty when there is 0/1 backend or no metrics.
+  unhealthyDeploymentIds: Set<number>;
   // Per-key routing strategy from virtual_keys.metadata.routing_strategy.
   // 'availability' (default) = health-first ranking; 'profit' = margin-first
   // with a loss-boundary availability floor (see tryWithDeploymentFailover);
@@ -199,6 +205,7 @@ const createVirtualKeyContext = async (
   const routingStrategy = parseRoutingStrategy(virtualKeyWithUser);
   let deployment: ModelDeployment;
   let deploymentsForCtx = allDeployments;
+  const unhealthyDeploymentIds = new Set<number>();
   if (allDeployments.length > 1) {
     const metrics = await getMetricsForModel(allDeployments[0].model_slug);
     deploymentsForCtx = rankDeployments(
@@ -207,6 +214,15 @@ const createVirtualKeyContext = async (
       routingStrategy
     );
     deployment = deploymentsForCtx[0];
+    // Snapshot the genuinely-unhealthy (tier UNHEALTHY) backends so the
+    // failover loop can withhold them while healthier backends exist. Cold /
+    // INSUFFICIENT_DATA nodes are NOT included — they fold into the GOOD
+    // lottery and remain serve-eligible.
+    for (const d of deploymentsForCtx) {
+      if (metrics.get(d.id)?.tier === 'UNHEALTHY') {
+        unhealthyDeploymentIds.add(d.id);
+      }
+    }
   } else {
     deployment = allDeployments[0];
   }
@@ -275,6 +291,7 @@ const createVirtualKeyContext = async (
     requestHash,
     spendMode,
     allDeployments: deploymentsForCtx,
+    unhealthyDeploymentIds,
     routingStrategy,
   };
 };

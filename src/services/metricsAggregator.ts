@@ -42,7 +42,7 @@ const PROFIT_AVAIL_TTL = 900; // 15 min (> 5 min refresh)
 export type DeploymentTier =
   | 'GOOD'
   | 'DEGRADED'
-  | 'FALLBACK_ONLY'
+  | 'UNHEALTHY'
   | 'INSUFFICIENT_DATA';
 
 export interface DeploymentMetrics {
@@ -135,7 +135,7 @@ export function tierFromUptime(
   if (sample < MIN_SAMPLE || uptime == null) return 'INSUFFICIENT_DATA';
   if (uptime >= GOOD_THRESHOLD) return 'GOOD';
   if (uptime >= DEGRADED_THRESHOLD) return 'DEGRADED';
-  return 'FALLBACK_ONLY';
+  return 'UNHEALTHY';
 }
 
 export function computeScore(

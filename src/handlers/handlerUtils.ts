@@ -1379,6 +1379,29 @@ function buildFailoverOrder(
   return primary ? [primary, ...rest] : rest;
 }
 
+// Generic rate-limit 429. Used by the failover loop both for the profit loss
+// floor and the health floor. The body must NOT reveal the routing reason
+// (cost/profit or backend health) — to the client it is plain backpressure:
+// retry after the reset.
+function rateLimitExceededResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        message: 'Rate limit exceeded. Please retry after the reset time.',
+        type: 'rate_limit_error',
+        code: 'rate_limit_exceeded',
+      },
+    }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Retry-After': '5',
+      },
+    }
+  );
+}
+
 function enqueueFailedAttempt(
   c: Context,
   deployment: ModelDeployment,
@@ -1497,7 +1520,30 @@ export async function tryWithDeploymentFailover(
     virtualKeyContext.modelDeploymentId
   );
 
-  // Profit-first: `ordered` is profitable backends first, loss-making ones
+  // Health floor: a saturated *healthy* node returns 429 (capacity), and 429
+  // now fails over for all tiers. Without a floor that overflow would cascade
+  // all the way down to a genuinely-broken UNHEALTHY node and serve from it
+  // — burning a timeout/5xx on the client instead of telling them to back off.
+  // So while ANY non-UNHEALTHY backend exists, serve only those; if they
+  // all fail, 429 the client rather than touching the withheld broken suffix.
+  // Only when every backend is UNHEALTHY do we serve them as a last resort,
+  // so a single-(unhealthy)-backend model still gets a response.
+  //
+  // This applies to ALL routing strategies, profit included. It deliberately
+  // supersedes rankProfit's "traffic must still go somewhere" EV fallback: a
+  // node failing >20% with real 5xx/timeouts is not worth serving even when
+  // it is the most profitable — a known-broken serve costs more in UX/retries
+  // than the margin is worth. Do NOT scope this to availability-only.
+  const unhealthy = virtualKeyContext?.unhealthyDeploymentIds;
+  const healthy =
+    unhealthy && unhealthy.size
+      ? ordered.filter((d) => !unhealthy.has(d.id))
+      : ordered;
+  const healthFloorActive =
+    healthy.length > 0 && healthy.length < ordered.length;
+  const serveOrder = healthy.length > 0 ? healthy : ordered;
+
+  // Profit-first: `serveOrder` is profitable backends first, loss-making ones
   // last. The floor decision fires once, at the first loss-making backend.
   const isProfit = virtualKeyContext?.routingStrategy === 'profit';
   const profitKeyId = virtualKeyContext?.virtualKeyWithUser?.id;
@@ -1506,8 +1552,8 @@ export async function tryWithDeploymentFailover(
   let lastResponse: Response | undefined;
   let lastAttemptIndex = 0;
 
-  for (let i = 0; i < ordered.length; i++) {
-    const deployment = ordered[i];
+  for (let i = 0; i < serveOrder.length; i++) {
+    const deployment = serveOrder[i];
 
     // Reached the loss-making suffix (profitable backends exhausted)? If the
     // key still has availability headroom above its floor, 429 rather than
@@ -1524,24 +1570,7 @@ export async function tryWithDeploymentFailover(
         // availability is comfortably above it, else serve at a loss.
         if (shouldRejectForProfit(availability, 0.7)) {
           c.set('attemptIndex', i);
-          // Generic rate-limit 429 — must NOT reveal the cost/profit reason.
-          return new Response(
-            JSON.stringify({
-              error: {
-                message:
-                  'Rate limit exceeded. Please retry after the reset time.',
-                type: 'rate_limit_error',
-                code: 'rate_limit_exceeded',
-              },
-            }),
-            {
-              status: 429,
-              headers: {
-                'Content-Type': 'application/json',
-                'Retry-After': '5',
-              },
-            }
-          );
+          return rateLimitExceededResponse();
         }
         lossServeAllowed = true;
       }
@@ -1583,7 +1612,7 @@ export async function tryWithDeploymentFailover(
     // requestLogger middleware will write the final row (incl. TTFT). Writing
     // here AND letting the outer middleware write would produce duplicate rows
     // with the same (request_id, attempt_index).
-    if (i < ordered.length - 1) {
+    if (i < serveOrder.length - 1) {
       enqueueFailedAttempt(
         c,
         deployment,
@@ -1604,5 +1633,11 @@ export async function tryWithDeploymentFailover(
   }
 
   c.set('attemptIndex', lastAttemptIndex);
+  // Every served (healthy) backend failed. If we withheld a UNHEALTHY
+  // suffix, do NOT fall through to it — return a 429 so the client backs off
+  // instead of being routed onto a known-broken node.
+  if (healthFloorActive) {
+    return rateLimitExceededResponse();
+  }
   return normalizeResponse(lastResponse!);
 }
