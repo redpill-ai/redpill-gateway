@@ -306,6 +306,10 @@ export function handleImageResponse(response: Response) {
   return new Response(response.body, response);
 }
 
+export function handleVideoResponse(response: Response) {
+  return new Response(response.body, response);
+}
+
 export function handleStreamingMode(
   response: Response,
   proxyProvider: string,

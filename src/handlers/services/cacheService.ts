@@ -35,6 +35,9 @@ export class CacheService {
       'createFinetune',
       'retrieveFinetune',
       'cancelFinetune',
+      'submitVideo',
+      'retrieveVideo',
+      'fetchVideoFile',
     ];
     return !nonCacheEndpoints.includes(endpoint);
   }

@@ -405,10 +405,12 @@ export interface Params {
   store?: boolean;
   metadata?: object;
   modalities?: string[];
-  audio?: {
-    voice: string;
-    format: string;
-  };
+  audio?:
+    | {
+        voice: string;
+        format: string;
+      }
+    | boolean;
   service_tier?: string;
   prediction?: {
     type: string;
@@ -419,6 +421,24 @@ export interface Params {
         }[]
       | string;
   };
+  // Video generation specific
+  duration?: string;
+  negative_prompt?: string;
+  aspect_ratio?: string;
+  resolution?: string;
+  upscale_factor?: number;
+  image_url?: string;
+  end_image_url?: string;
+  audio_url?: string;
+  video_url?: string;
+  reference_image_urls?: string[];
+  reference_video_urls?: string[];
+  reference_audio_urls?: string[];
+  reference_video_total_duration?: number;
+  elements?: Record<string, any>[];
+  scene_image_urls?: string[];
+  queue_id?: string;
+  delete_media_on_completion?: boolean;
   // Google Vertex AI specific
   safety_settings?: any;
   // Anthropic specific

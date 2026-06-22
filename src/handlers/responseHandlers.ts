@@ -13,6 +13,7 @@ import {
   handleOctetStreamResponse,
   handleStreamingMode,
   handleTextResponse,
+  handleVideoResponse,
 } from './streamHandler';
 import { HookSpan } from '../middlewares/hooks';
 import { env } from 'hono/adapter';
@@ -256,6 +257,10 @@ export async function responseHandler(
 
   if (responseContentType?.startsWith(CONTENT_TYPES.GENERIC_IMAGE_PATTERN)) {
     return { response: handleImageResponse(response), responseJson: null };
+  }
+
+  if (responseContentType?.startsWith(CONTENT_TYPES.GENERIC_VIDEO_PATTERN)) {
+    return { response: handleVideoResponse(response), responseJson: null };
   }
 
   if (

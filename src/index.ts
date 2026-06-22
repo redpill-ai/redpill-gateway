@@ -42,6 +42,11 @@ import {
   cacheRefreshHandler,
   modelRateLimitConfigCacheClearHandler,
 } from './handlers/adminHandler';
+import videoHandler, {
+  videoCompleteHandler,
+  videoQuoteHandler,
+  videoRequestFromPath,
+} from './handlers/videoHandler';
 
 // Config
 import conf from '../conf.json';
@@ -176,6 +181,52 @@ app.post('/v1/embeddings', virtualKeyValidator, rateLimiter, embeddingsHandler);
  * Handles requests by passing them to the imageGenerations handler.
  */
 app.post('/v1/images/generations', requestValidator, imageGenerationsHandler);
+
+/**
+ * POST routes for async video generation.
+ */
+app.post(
+  '/v1/video/queue',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('submitVideo', 'POST')
+);
+app.post(
+  '/v1/video/retrieve',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('retrieveVideo', 'GET')
+);
+app.post(
+  '/v1/video/quote',
+  virtualKeyValidator,
+  rateLimiter,
+  videoQuoteHandler
+);
+app.post(
+  '/v1/video/complete',
+  virtualKeyValidator,
+  rateLimiter,
+  videoCompleteHandler
+);
+app.post(
+  '/v1/videos',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('submitVideo', 'POST')
+);
+app.get(
+  '/v1/videos/:id/file',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('fetchVideoFile', 'GET', videoRequestFromPath)
+);
+app.get(
+  '/v1/videos/:id',
+  virtualKeyValidator,
+  rateLimiter,
+  videoHandler('retrieveVideo', 'GET', videoRequestFromPath)
+);
 
 /**
  * POST route for '/v1/audio/speech'.

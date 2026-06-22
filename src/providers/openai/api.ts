@@ -27,8 +27,12 @@ const OpenAIAPIConfig: ProviderAPIConfig = {
 
     return headersObj;
   },
-  getEndpoint: ({ fn, gatewayRequestURL }) => {
+  getEndpoint: ({ fn, gatewayRequestURL, gatewayRequestBodyJSON, c }) => {
     const basePath = gatewayRequestURL.split('/v1')?.[1];
+    const videoId =
+      gatewayRequestBodyJSON?.id ||
+      gatewayRequestBodyJSON?.queue_id ||
+      c.req.param('id');
     switch (fn) {
       case 'complete':
         return '/completions';
@@ -38,6 +42,12 @@ const OpenAIAPIConfig: ProviderAPIConfig = {
         return '/embeddings';
       case 'imageGenerate':
         return '/images/generations';
+      case 'submitVideo':
+        return '/v1/videos';
+      case 'retrieveVideo':
+        return `/v1/videos/${videoId}`;
+      case 'fetchVideoFile':
+        return `/v1/videos/${videoId}/file`;
       case 'createSpeech':
         return '/audio/speech';
       case 'createTranscription':

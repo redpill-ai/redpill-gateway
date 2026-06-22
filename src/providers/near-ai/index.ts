@@ -7,15 +7,28 @@ import {
   OpenAIToAnthropicMessagesResponseTransform,
   OpenAIToAnthropicMessagesStreamTransform,
 } from '../openai-to-anthropic';
+import {
+  VideoFileFetchConfig,
+  VideoResponseTransform,
+  VideoRetrieveConfig,
+  VideoSubmitResponseTransform,
+  VideoSubmitConfig,
+} from '../video';
 
 const NearAIConfig: ProviderConfigs = {
   complete: NearAICompleteConfig,
   chatComplete: NearAIChatCompleteConfig,
   messages: OpenAIToAnthropicMessagesConfig,
+  submitVideo: VideoSubmitConfig,
+  retrieveVideo: VideoRetrieveConfig,
+  fetchVideoFile: VideoFileFetchConfig,
   api: NearAIApiConfig,
   responseTransforms: {
     messages: OpenAIToAnthropicMessagesResponseTransform,
     'stream-messages': OpenAIToAnthropicMessagesStreamTransform,
+    submitVideo: VideoSubmitResponseTransform,
+    retrieveVideo: VideoResponseTransform,
+    fetchVideoFile: VideoResponseTransform,
   },
 };
 

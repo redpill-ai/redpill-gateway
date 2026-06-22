@@ -255,6 +255,10 @@ export class ModelService {
       prompt: pick('input_cost_per_token') ?? '0',
       completion: pick('output_cost_per_token') ?? '0',
     };
+    const image = pick('image_cost_per_token');
+    if (image !== undefined) pricing.image = image;
+    const request = pick('request_cost');
+    if (request !== undefined) pricing.request = request;
     const cacheRead = pick('cache_read_cost_per_token');
     if (cacheRead !== undefined) pricing.input_cache_read = cacheRead;
     const cacheWrite = pick('cache_creation_cost_per_token');
